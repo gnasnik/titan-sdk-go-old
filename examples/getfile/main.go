@@ -10,11 +10,13 @@ import (
 )
 
 func main() {
+	address := "https://127.0.0.1:5000"
 	token := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBbGxvdyI6WyJyZWFkIiwid3JpdGUiLCJzaWduIiwiYWRtaW4iXX0.dRbUYnLDWAvFwqp3J4grGGgQp7pwbFVpWaBoii4NZzU"
+
 	client, err := titan.New(
-		config.AddressOption("https://127.0.0.1:5000"),
+		config.AddressOption(address),
 		config.TokenOption(token),
-		config.TraversalModeOption(config.TraversalModeRange),
+		//config.TraversalModeOption(config.TraversalModeRange),
 	)
 	if err != nil {
 		log.Fatal(err)

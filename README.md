@@ -31,9 +31,10 @@ import (
 )
 
 func main() {
-	token := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBbGxvdyI6WyJyZWFkIiwid3JpdGUiLCJzaWduIiwiYWRtaW4iXX0.CqP49rNKcJlN3vGGebPYgHb929Cm3tR6RCKPF95gf04"
+	token := "your_token_value_here"
+	address := "your_address_value_here"
 	client, err := titan.New(
-		config.AddressOption("http://127.0.0.1:5000"),
+		config.AddressOption(address),
 		config.TokenOption(token))
 	if err != nil {
 		log.Fatal(err)
