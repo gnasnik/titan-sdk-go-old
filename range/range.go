@@ -1,8 +1,7 @@
-package _range
+package byterange
 
 import (
 	"context"
-	"fmt"
 	"github.com/gnasnik/titan-sdk-go/titan"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log"
@@ -11,8 +10,18 @@ import (
 
 var log = logging.Logger("range")
 
-// TODO: make this configurable
-var maxConcurrent int64 = 10
+var (
+	// concurrent limits the maximum number of concurrent HTTP requests allowed at the same time.
+	concurrent int64 = 10 // TODO: make this configurable
+
+	// rangeSize specifies the maximum size of each file range that can be downloaded in a single HTTP request.
+	// Each range of data is read into memory and then written to the output stream, so the amount of memory used is
+	// directly proportional to the size of rangeSize.
+	//
+	// Specifically, the estimated amount of memory used can be calculated as concurrent x rangeSize.
+	// Keep an eye on memory usage when modifying this value, as setting it too high can result in excessive memory usage and potential out-of-memory errors.
+	rangeSize int64 = 10 << 20 // 10 MiB
+)
 
 type Range struct {
 	titan *titan.Service
@@ -25,66 +34,30 @@ func New(service *titan.Service) *Range {
 }
 
 func (r *Range) GetFile(ctx context.Context, cid cid.Cid) (int64, io.ReadCloser, error) {
-	var start, end int64
-	var defaultRangeSize int64 = 1 << 10 // 1 KiB
+	var (
+		start int64
+		size  int64 = 1 << 10 // 1 KiB
+	)
 
-	fileSize, data, err := r.titan.GetRange(ctx, cid, start, defaultRangeSize)
+	fileSize, _, err := r.titan.GetRange(ctx, cid, start, size)
 	if err != nil {
-		log.Errorf("get range: %v", err)
+		log.Errorf("get range failed: %v", err)
 		return 0, nil, err
 	}
 
-	size := fileSize / maxConcurrent
-	response := make([]chan []byte, maxConcurrent)
 	reader, writer := io.Pipe()
 
-	// var round int64
-	//maxSize := int64(10 << 20) // 10 MiB
-	//if size > maxSize {
-	//	size = maxSize
-	//}
-	//
-	//round = int64(math.Ceil(float64(fileSize) / float64(size*maxConcurrent)))
-	//
-	//fmt.Println("=============round", round)
-
-	for i := 0; i < int(maxConcurrent); i++ {
-		start, end = end, end+size
-		if end > fileSize {
-			end = fileSize
-		}
-
-		resp := make(chan []byte)
-		go func(start, end int64, resp chan []byte) {
-			fmt.Println("start", start, "end", end)
-			fileSize, data, err = r.titan.GetRange(ctx, cid, start, end)
-			if err != nil {
-				log.Errorf("get byte range: %v", err)
-				return
-			}
-
-			resp <- data
-		}(start, end, resp)
-
-		response[i] = resp
-
-	}
-
-	go func() {
-		for i := 0; i < len(response); i++ {
-			_, err = writer.Write(<-response[i])
-			if err != nil {
-				log.Errorf("write data: %v", err)
-				return
-			}
-		}
-
-		if err = reader.Close(); err != nil {
-			log.Errorf("close reader: %v", err)
-			return
-		}
-
-	}()
+	(&dispatcher{
+		cid:        cid,
+		fileSize:   fileSize,
+		rangeSize:  rangeSize,
+		concurrent: int(concurrent),
+		titan:      r.titan,
+		reader:     reader,
+		writer:     writer,
+		workers:    make(chan worker, concurrent),
+		resp:       make([]chan []byte, 0),
+	}).run(ctx)
 
 	return fileSize, reader, nil
 }

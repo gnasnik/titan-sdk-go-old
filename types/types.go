@@ -15,7 +15,6 @@ const (
 	NATRestricted
 	NATPortRestricted
 	NATUDPBlock
-	NATUDPFirewall
 )
 
 func (n NATType) String() string {

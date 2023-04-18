@@ -87,7 +87,7 @@ func New(options config.Config) (*Service, error) {
 func serverHTTP(conn net.PacketConn) {
 	handler := mux.NewRouter()
 	handler.HandleFunc("/ping", func(writer http.ResponseWriter, h *http.Request) {
-		log.Debugf("receive message from: %s", h.RemoteAddr)
+		//log.Debugf("receive message from: %s", h.RemoteAddr)
 		writer.Write([]byte("pong"))
 	})
 
@@ -103,7 +103,7 @@ func serverHTTP(conn net.PacketConn) {
 
 }
 
-func (s *Service) selectEdge(ctx context.Context, cid cid.Cid) (*types.Edge, *http.Client, error) {
+func (s *Service) selectEdge() (*types.Edge, *http.Client, error) {
 	if len(s.accessibleEdges) == 0 {
 		return nil, nil, errors.Errorf("no avaliable node")
 	}
@@ -169,7 +169,7 @@ func (s *Service) GetBlock(ctx context.Context, cid cid.Cid) (blocks.Block, erro
 		return nil, err
 	}
 
-	edge, client, err := s.selectEdge(ctx, cid)
+	edge, client, err := s.selectEdge()
 	if err != nil {
 		return nil, err
 	}
@@ -213,27 +213,27 @@ func (s *Service) loadEdges(ctx context.Context, cid cid.Cid) error {
 }
 
 // GetRange retrieves specific byte ranges of UnixFS files and raw blocks.
-func (s *Service) GetRange(ctx context.Context, cid cid.Cid, begin, end int64) (int64, []byte, error) {
+func (s *Service) GetRange(ctx context.Context, cid cid.Cid, start, end int64) (int64, []byte, error) {
 	err := s.loadEdges(ctx, cid)
 	if err != nil {
 		return 0, nil, err
 	}
 
-	edge, client, err := s.selectEdge(ctx, cid)
+	edge, client, err := s.selectEdge()
 	if err != nil {
 		return 0, nil, err
 	}
 
-	start := time.Now()
+	startTime := time.Now()
 	namespace := fmt.Sprintf("ipfs/%s", cid.String())
 	header := http.Header{}
-	header.Add("Range", fmt.Sprintf("bytes=%d-%d", begin, end))
+	header.Add("Range", fmt.Sprintf("bytes=%d-%d", start, end))
 	size, data, err := getData(client, edge, namespace, formatCAR, header)
 	if err != nil {
 		return 0, nil, errors.Errorf("post request failed: %v", err)
 	}
 
-	proofs := generateProofOfWork(start, edge, int64(len(data)))
+	proofs := generateProofOfWork(startTime, edge, int64(len(data)))
 	s.plk.Lock()
 	if _, ok := s.proofs[edge.SchedulerURL]; !ok {
 		s.proofs[edge.SchedulerURL] = make([]*types.PoWProof, 0)

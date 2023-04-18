@@ -103,8 +103,6 @@ func (c *Client) getFileByRange(ctx context.Context, id string) (int64, io.ReadC
 		return 0, nil, err
 	}
 
-	defer c.notify.NotifyEndOfFile()
-
 	return byteRange.New(c.titan).GetFile(ctx, cid)
 }
 

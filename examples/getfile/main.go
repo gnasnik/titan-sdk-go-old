@@ -16,7 +16,7 @@ func main() {
 	client, err := titan.New(
 		config.AddressOption(address),
 		config.TokenOption(token),
-		//config.TraversalModeOption(config.TraversalModeRange),
+		config.TraversalModeOption(config.TraversalModeRange),
 	)
 	if err != nil {
 		log.Fatal(err)
