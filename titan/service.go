@@ -1,11 +1,13 @@
 package titan
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/gnasnik/titan-sdk-go/config"
 	"github.com/gnasnik/titan-sdk-go/internal/codec"
+	"github.com/gnasnik/titan-sdk-go/internal/crypto"
 	"github.com/gnasnik/titan-sdk-go/internal/request"
 	"github.com/gnasnik/titan-sdk-go/types"
 	"github.com/gorilla/mux"
@@ -18,6 +20,8 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -48,14 +52,19 @@ type Service struct {
 	clients map[string]*http.Client // holds the connection between user side and edge node
 
 	plk    sync.Mutex
-	proofs map[string][]*types.PoWProof
+	proofs map[string]*proofParam
+}
+
+type proofParam struct {
+	Proofs []*types.ProofOfWork
+	Key    string
 }
 
 type params []interface{}
 
 func New(options config.Config) (*Service, error) {
 	if options.Address == "" || options.Token == "" {
-		return nil, errors.Errorf("address or token is empty")
+		return nil, errors.Errorf("address or Token is empty")
 	}
 
 	conn, err := net.ListenUDP("udp", nil)
@@ -71,7 +80,7 @@ func New(options config.Config) (*Service, error) {
 		conn:       conn,
 		started:    false,
 		clients:    make(map[string]*http.Client),
-		proofs:     make(map[string][]*types.PoWProof),
+		proofs:     make(map[string]*proofParam),
 	}
 
 	s.natType, err = s.Discover()
@@ -87,7 +96,6 @@ func New(options config.Config) (*Service, error) {
 func serverHTTP(conn net.PacketConn) {
 	handler := mux.NewRouter()
 	handler.HandleFunc("/ping", func(writer http.ResponseWriter, h *http.Request) {
-		//log.Debugf("receive message from: %s", h.RemoteAddr)
 		writer.Write([]byte("pong"))
 	})
 
@@ -101,6 +109,41 @@ func serverHTTP(conn net.PacketConn) {
 		Handler:   handler,
 	}).Serve(conn)
 
+}
+
+// GetBlock retrieves a raw block from titan http gateway
+func (s *Service) GetBlock(ctx context.Context, cid cid.Cid) (blocks.Block, error) {
+	err := s.loadEdges(ctx, cid)
+	if err != nil {
+		return nil, err
+	}
+
+	edge, client, err := s.selectEdge()
+	if err != nil {
+		return nil, err
+	}
+
+	start := time.Now()
+	namespace := fmt.Sprintf("ipfs/%s", cid.String())
+	size, data, err := getData(client, edge, namespace, formatRaw, nil)
+	if err != nil {
+		return nil, errors.Errorf("post request failed: %v", err)
+	}
+
+	proofs := &proofOfWorkParams{
+		cid:        cid,
+		tStart:     start,
+		tEnd:       time.Now(),
+		size:       size,
+		edge:       edge,
+		fileFormat: "raw",
+	}
+
+	if err = s.generateProofOfWork(proofs); err != nil {
+		return nil, errors.Errorf("generate proof of work failed: %v", err)
+	}
+
+	return blocks.NewBlock(data), nil
 }
 
 func (s *Service) selectEdge() (*types.Edge, *http.Client, error) {
@@ -118,7 +161,7 @@ func (s *Service) selectEdge() (*types.Edge, *http.Client, error) {
 }
 
 func getData(client *http.Client, edge *types.Edge, namespace string, format string, requestHeader http.Header) (int64, []byte, error) {
-	body, err := codec.Encode(edge.Credentials)
+	body, err := codec.Encode(edge.Token)
 	if err != nil {
 		return 0, nil, errors.Errorf("send request: %v", err)
 	}
@@ -162,36 +205,6 @@ func getFileSizeFromContentRange(contentRange string) (int64, error) {
 	return strconv.ParseInt(subs[1], 10, 64)
 }
 
-// GetBlock retrieves a raw block from titan http gateway
-func (s *Service) GetBlock(ctx context.Context, cid cid.Cid) (blocks.Block, error) {
-	err := s.loadEdges(ctx, cid)
-	if err != nil {
-		return nil, err
-	}
-
-	edge, client, err := s.selectEdge()
-	if err != nil {
-		return nil, err
-	}
-
-	start := time.Now()
-	namespace := fmt.Sprintf("ipfs/%s", cid.String())
-	_, data, err := getData(client, edge, namespace, formatRaw, nil)
-	if err != nil {
-		return nil, errors.Errorf("post request failed: %v", err)
-	}
-
-	proofs := generateProofOfWork(start, edge, int64(len(data)))
-	s.plk.Lock()
-	if _, ok := s.proofs[edge.SchedulerURL]; !ok {
-		s.proofs[edge.SchedulerURL] = make([]*types.PoWProof, 0)
-	}
-	s.proofs[edge.SchedulerURL] = append(s.proofs[edge.SchedulerURL], proofs)
-	s.plk.Unlock()
-
-	return blocks.NewBlock(data), nil
-}
-
 // loadEdges retrieves all accessible edge nodes of a file
 func (s *Service) loadEdges(ctx context.Context, cid cid.Cid) error {
 	if s.started {
@@ -228,34 +241,76 @@ func (s *Service) GetRange(ctx context.Context, cid cid.Cid, start, end int64) (
 	namespace := fmt.Sprintf("ipfs/%s", cid.String())
 	header := http.Header{}
 	header.Add("Range", fmt.Sprintf("bytes=%d-%d", start, end))
+
 	size, data, err := getData(client, edge, namespace, formatCAR, header)
 	if err != nil {
 		return 0, nil, errors.Errorf("post request failed: %v", err)
 	}
 
-	proofs := generateProofOfWork(startTime, edge, int64(len(data)))
-	s.plk.Lock()
-	if _, ok := s.proofs[edge.SchedulerURL]; !ok {
-		s.proofs[edge.SchedulerURL] = make([]*types.PoWProof, 0)
+	proofs := &proofOfWorkParams{
+		cid:        cid,
+		tStart:     startTime,
+		tEnd:       time.Now(),
+		size:       size,
+		edge:       edge,
+		rStart:     start,
+		rEnd:       end,
+		fileFormat: "range",
 	}
-	s.proofs[edge.SchedulerURL] = append(s.proofs[edge.SchedulerURL], proofs)
-	s.plk.Unlock()
+
+	if err = s.generateProofOfWork(proofs); err != nil {
+		return 0, nil, errors.Errorf("generate proof of work failed: %v", err)
+	}
 
 	return size, data, nil
 }
 
-// generateProofOfWork generates a proof of work for a downloaded file.
-func generateProofOfWork(start time.Time, edge *types.Edge, size int64) *types.PoWProof {
-	end := time.Now()
-	cost := time.Since(start)
+type proofOfWorkParams struct {
+	cid        cid.Cid
+	tStart     time.Time
+	tEnd       time.Time
+	size       int64
+	edge       *types.Edge
+	rStart     int64
+	rEnd       int64
+	fileFormat string
+}
 
-	return &types.PoWProof{
-		StartTime:     start.Unix(),
-		EndTime:       end.Unix(),
-		DownloadSpeed: size / int64(cost),
-		DownloadSize:  size,
-		ClientID:      edge.NodeID,
+// generateProofOfWork generates proofs of work for per request.
+func (s *Service) generateProofOfWork(params *proofOfWorkParams) error {
+	cost := params.tEnd.Sub(params.tStart)
+	speed := params.size / int64(cost)
+	url := params.edge.SchedulerURL
+
+	s.plk.Lock()
+	if _, ok := s.proofs[url]; !ok {
+		s.proofs[url] = &proofParam{
+			Proofs: make([]*types.ProofOfWork, 0),
+			Key:    params.edge.SchedulerKey,
+		}
 	}
+
+	proofs := &types.ProofOfWork{
+		TokenID: params.edge.Token.ID,
+		NodeID:  params.edge.NodeID,
+		Workload: types.Workload{
+			CID:           params.cid.String(),
+			StartTime:     params.tStart.Unix(),
+			EndTime:       params.tEnd.Unix(),
+			DownloadSpeed: speed,
+			DownloadSize:  params.size,
+			FileFormat:    params.fileFormat,
+			Range: &types.FileRange{
+				Start: params.rStart,
+				End:   params.rEnd,
+			},
+		},
+	}
+
+	s.proofs[url].Proofs = append(s.proofs[url].Proofs, proofs)
+	s.plk.Unlock()
+
+	return nil
 }
 
 func (s *Service) getEdgeNodesByFile(cid cid.Cid) ([]*types.Edge, error) {
@@ -287,7 +342,7 @@ func (s *Service) getEdgeNodesByFile(cid cid.Cid) ([]*types.Edge, error) {
 			e := &types.Edge{
 				NodeID:       edge.NodeID,
 				URL:          edge.URL,
-				Credentials:  edge.Credentials,
+				Token:        edge.Tk,
 				NATType:      edge.NatType,
 				SchedulerURL: item.SchedulerURL,
 				SchedulerKey: item.SchedulerKey,
@@ -416,8 +471,18 @@ func (s *Service) SendPackets(remoteAddr string) error {
 }
 
 // SubmitProofOfWork submits a proof of work for a downloaded file
-func (s *Service) SubmitProofOfWork(schedulerAddr string, proofs []*types.PoWProof) error {
-	serializedParams, err := json.Marshal(params{proofs})
+func (s *Service) SubmitProofOfWork(schedulerAddr string, data []byte) error {
+	pushURL, err := getPushURL(schedulerAddr)
+	if err != nil {
+		return err
+	}
+
+	streamReader, err := pushStream(s.httpClient, pushURL, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+
+	serializedParams, err := json.Marshal(params{streamReader})
 	if err != nil {
 		return errors.Errorf("marshaling params failed: %v", err)
 	}
@@ -434,6 +499,23 @@ func (s *Service) SubmitProofOfWork(schedulerAddr string, proofs []*types.PoWPro
 	return err
 }
 
+func getPushURL(addr string) (string, error) {
+	pushURL, err := url.Parse(addr)
+	if err != nil {
+		return "", err
+	}
+	switch pushURL.Scheme {
+	case "ws":
+		pushURL.Scheme = "http"
+	case "wss":
+		pushURL.Scheme = "https"
+	}
+	///rpc/v0 -> /rpc/streams/v0/push
+
+	pushURL.Path = path.Join(pushURL.Path, "../streams/v0/push")
+	return pushURL.String(), nil
+}
+
 // roundRobin is a round-robin strategy algorithm for node selection.
 func (s *Service) roundRobin() *types.Edge {
 	s.clk.Lock()
@@ -447,7 +529,7 @@ func (s *Service) cleanup() {
 	s.started = false
 	s.accessibleEdges = nil
 	s.clients = make(map[string]*http.Client)
-	s.proofs = make(map[string][]*types.PoWProof)
+	s.proofs = make(map[string]*proofParam)
 }
 
 func (s *Service) EndOfFile() error {
@@ -457,17 +539,60 @@ func (s *Service) EndOfFile() error {
 	wg.Add(len(s.proofs))
 
 	s.plk.Lock()
-	for schedulerAddr, proofs := range s.proofs {
-		go func(addr string, params []*types.PoWProof) {
+	for schedulerAddr, pp := range s.proofs {
+		go func(addr string, params *proofParam) {
 			defer wg.Done()
 
-			if err := s.SubmitProofOfWork(addr, params); err != nil {
+			data, err := encrypt(params)
+			if err != nil {
+				log.Errorf("encrypting proof failed: %v", err)
+				return
+			}
+
+			if err := s.SubmitProofOfWork(addr, data); err != nil {
 				log.Errorf("submit proof of work failed: %v", err)
 			}
-		}(schedulerAddr, proofs)
+		}(schedulerAddr, pp)
 	}
 	s.plk.Unlock()
 
 	wg.Wait()
 	return nil
+}
+
+func encrypt(param *proofParam) ([]byte, error) {
+	data, err := codec.Encode(toWorkloadList(param.Proofs))
+	if err != nil {
+		return nil, err
+	}
+
+	pub, err := crypto.DecodePublicKey(param.Key)
+	if err != nil {
+		return nil, err
+	}
+
+	return crypto.Encrypt(data, pub)
+}
+
+func toWorkloadList(proofs []*types.ProofOfWork) []*types.WorkloadList {
+	workloadInNode := make(map[string]*types.WorkloadList)
+	for _, proof := range proofs {
+		_, ok := workloadInNode[proof.NodeID]
+		if !ok {
+			workloadInNode[proof.NodeID] = &types.WorkloadList{
+				TokenID:   proof.TokenID,
+				ClientID:  proof.ClientID,
+				NodeID:    proof.NodeID,
+				Workloads: make([]*types.Workload, 0),
+			}
+		}
+		workloadInNode[proof.NodeID].Workloads = append(workloadInNode[proof.NodeID].Workloads, &proof.Workload)
+	}
+
+	var out []*types.WorkloadList
+	for _, workloadList := range workloadInNode {
+		out = append(out, workloadList)
+	}
+
+	return out
 }

@@ -40,11 +40,19 @@ func (d *dispatcher) initial() {
 
 	count := int64(math.Ceil(float64(d.fileSize) / float64(d.rangeSize)))
 	for i := int64(0); i < count; i++ {
+		start := i * d.rangeSize
+		end := (i + 1) * d.rangeSize
+
+		if end > d.fileSize {
+			end = d.fileSize
+		}
+
 		d.todos.Push(&job{
 			index: int(i),
-			start: i * d.rangeSize,
-			end:   (i + 1) * d.rangeSize,
+			start: start,
+			end:   end,
 		})
+
 		d.resp = append(d.resp, make(chan []byte))
 	}
 }
@@ -79,8 +87,16 @@ func (d *dispatcher) run(ctx context.Context) {
 						}
 					}
 
+					size := int64(len(data))
+					offset := j.end - j.start
+
+					if size < offset {
+						offset = size - 1
+						log.Errorf("fetch data size not match, want: %d, got: %d", offset, size)
+					}
+
 					d.workers <- w
-					d.resp[j.index] <- data
+					d.resp[j.index] <- data[:offset]
 				}()
 			case <-ctx.Done():
 				return

@@ -16,7 +16,7 @@ import (
 )
 
 type API interface {
-	// GetFile get a raw file from the Titan network.
+	// GetFile get a file from the Titan network.
 	// The file is downloaded in chunks and assembled locally.
 	GetFile(ctx context.Context, cid string) (int64, io.ReadCloser, error)
 }

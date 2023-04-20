@@ -34,18 +34,20 @@ func (n NATType) String() string {
 	}
 }
 
-// GatewayCredentials the ability to access edge node
-type GatewayCredentials struct {
-	// encrypted AccessToken
-	Ciphertext string
-	Sign       string
+// Token access download asset
+type Token struct {
+	ID string
+	// CipherText encrypted TokenPayload by public key
+	CipherText string
+	// Sign signs CipherText by scheduler private key
+	Sign string
 }
 
 type EdgeDownloadInfo struct {
-	URL         string
-	Credentials *GatewayCredentials
-	NodeID      string
-	NatType     string
+	URL     string
+	Tk      *Token
+	NodeID  string
+	NatType string
 }
 
 type EdgeDownloadInfoList struct {
@@ -56,7 +58,7 @@ type EdgeDownloadInfoList struct {
 
 type Edge struct {
 	URL          string
-	Credentials  *GatewayCredentials
+	Token        *Token
 	NodeID       string
 	NATType      string
 	SchedulerURL string
@@ -82,11 +84,31 @@ func (h Host) String() string {
 	return fmt.Sprintf("%s:%s", h.IP, h.Port)
 }
 
-type PoWProof struct {
-	TicketID      string
-	ClientID      string
+type FileRange struct {
+	Start int64
+	End   int64
+}
+
+type Workload struct {
+	CID           string
+	Range         *FileRange
+	FileFormat    string
 	DownloadSpeed int64
 	DownloadSize  int64
 	StartTime     int64
 	EndTime       int64
+}
+
+type WorkloadList struct {
+	TokenID   string
+	ClientID  string
+	NodeID    string
+	Workloads []*Workload
+}
+
+type ProofOfWork struct {
+	Workload
+	TokenID  string
+	ClientID string
+	NodeID   string
 }

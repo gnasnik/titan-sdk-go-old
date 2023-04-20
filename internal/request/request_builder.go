@@ -77,27 +77,24 @@ func (r *Builder) Header(name, value string) *Builder {
 
 // Post sends the post request and return the response.
 func (r *Builder) Post(ctx context.Context) (*response, error) {
-	req := NewRequest(ctx, r.baseApi, r.namespace, nil)
+	req := NewRequest(ctx, r.baseApi, r.namespace, r.headers)
 	req.Opts = r.opts
-	req.Headers = r.headers
 	req.Body = r.body
 	return req.Send(r.client, http.MethodPost)
 }
 
 // Get sends the get request and return the response.
 func (r *Builder) Get(ctx context.Context) (*response, error) {
-	req := NewRequest(ctx, r.baseApi, r.namespace, nil)
+	req := NewRequest(ctx, r.baseApi, r.namespace, r.headers)
 	req.Opts = r.opts
-	req.Headers = r.headers
 	req.Body = r.body
 	return req.Send(r.client, http.MethodGet)
 }
 
 // Head sends the head request and return the response.
 func (r *Builder) Head(ctx context.Context) (http.Header, error) {
-	req := NewRequest(ctx, r.baseApi, r.namespace, nil)
+	req := NewRequest(ctx, r.baseApi, r.namespace, r.headers)
 	req.Opts = r.opts
-	req.Headers = r.headers
 	resp, err := r.client.Head(req.getURL())
 	if err != nil {
 		return nil, err
