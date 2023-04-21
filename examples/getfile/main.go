@@ -7,11 +7,12 @@ import (
 	"github.com/gnasnik/titan-sdk-go/config"
 	"io"
 	"log"
+	"os"
 )
 
 func main() {
-	address := "https://127.0.0.1:5000"
-	token := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBbGxvdyI6WyJyZWFkIiwid3JpdGUiLCJzaWduIiwiYWRtaW4iXX0.dRbUYnLDWAvFwqp3J4grGGgQp7pwbFVpWaBoii4NZzU"
+	address := os.Getenv("TITAN_ADDRESS")
+	token := os.Getenv("TITAN_TOKEN")
 
 	client, err := titan.New(
 		config.AddressOption(address),
