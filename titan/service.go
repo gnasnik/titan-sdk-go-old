@@ -136,7 +136,7 @@ func (s *Service) GetBlock(ctx context.Context, cid cid.Cid) (blocks.Block, erro
 		tEnd:       time.Now(),
 		size:       size,
 		edge:       edge,
-		fileFormat: "raw",
+		fileFormat: types.RawFile,
 	}
 
 	if err = s.generateProofOfWork(proofs); err != nil {
@@ -255,7 +255,7 @@ func (s *Service) GetRange(ctx context.Context, cid cid.Cid, start, end int64) (
 		edge:       edge,
 		rStart:     start,
 		rEnd:       end,
-		fileFormat: "range",
+		fileFormat: types.CarFile,
 	}
 
 	if err = s.generateProofOfWork(proofs); err != nil {
@@ -273,7 +273,7 @@ type proofOfWorkParams struct {
 	edge       *types.Edge
 	rStart     int64
 	rEnd       int64
-	fileFormat string
+	fileFormat types.FileFormat
 }
 
 // generateProofOfWork generates proofs of work for per request.
@@ -291,15 +291,15 @@ func (s *Service) generateProofOfWork(params *proofOfWorkParams) error {
 	}
 
 	proofs := &types.ProofOfWork{
-		TokenID: params.edge.Token.ID,
-		NodeID:  params.edge.NodeID,
+		TokenID:    params.edge.Token.ID,
+		NodeID:     params.edge.NodeID,
+		FileFormat: params.fileFormat,
 		Workload: types.Workload{
 			CID:           params.cid.String(),
 			StartTime:     params.tStart.Unix(),
 			EndTime:       params.tEnd.Unix(),
 			DownloadSpeed: speed,
 			DownloadSize:  params.size,
-			FileFormat:    params.fileFormat,
 			Range: &types.FileRange{
 				Start: params.rStart,
 				End:   params.rEnd,
@@ -543,7 +543,7 @@ func (s *Service) EndOfFile() error {
 		go func(addr string, params *proofParam) {
 			defer wg.Done()
 
-			data, err := encrypt(params)
+			data, err := encrypt(params.Key, toWorkloadList(params.Proofs))
 			if err != nil {
 				log.Errorf("encrypting proof failed: %v", err)
 				return
@@ -560,13 +560,13 @@ func (s *Service) EndOfFile() error {
 	return nil
 }
 
-func encrypt(param *proofParam) ([]byte, error) {
-	data, err := codec.Encode(toWorkloadList(param.Proofs))
+func encrypt(key string, value interface{}) ([]byte, error) {
+	data, err := codec.Encode(value)
 	if err != nil {
 		return nil, err
 	}
 
-	pub, err := crypto.DecodePublicKey(param.Key)
+	pub, err := crypto.DecodePublicKey(key)
 	if err != nil {
 		return nil, err
 	}
@@ -580,10 +580,11 @@ func toWorkloadList(proofs []*types.ProofOfWork) []*types.WorkloadList {
 		_, ok := workloadInNode[proof.NodeID]
 		if !ok {
 			workloadInNode[proof.NodeID] = &types.WorkloadList{
-				TokenID:   proof.TokenID,
-				ClientID:  proof.ClientID,
-				NodeID:    proof.NodeID,
-				Workloads: make([]*types.Workload, 0),
+				TokenID:    proof.TokenID,
+				ClientID:   proof.ClientID,
+				NodeID:     proof.NodeID,
+				FileFormat: proof.FileFormat,
+				Workloads:  make([]*types.Workload, 0),
 			}
 		}
 		workloadInNode[proof.NodeID].Workloads = append(workloadInNode[proof.NodeID].Workloads, &proof.Workload)

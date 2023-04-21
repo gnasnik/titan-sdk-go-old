@@ -89,7 +89,7 @@ func (c *Client) getFileByDFS(ctx context.Context, id string) (int64, io.ReadClo
 
 	switch node.(type) {
 	case files.File:
-		return size, newFileReader(node, c.notify.NotifyEndOfFile), nil
+		return size, newFileReader(node, c.notify.SendEndOfFileEvent), nil
 	case files.Directory:
 		return 0, nil, errors.Errorf("the merkle dag is directory")
 	default:

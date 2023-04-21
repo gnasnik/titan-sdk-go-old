@@ -92,23 +92,31 @@ type FileRange struct {
 type Workload struct {
 	CID           string
 	Range         *FileRange
-	FileFormat    string
 	DownloadSpeed int64
 	DownloadSize  int64
 	StartTime     int64
 	EndTime       int64
 }
 
+type FileFormat string
+
+const (
+	CarFile FileFormat = "car"
+	RawFile FileFormat = "raw"
+)
+
 type WorkloadList struct {
-	TokenID   string
-	ClientID  string
-	NodeID    string
-	Workloads []*Workload
+	TokenID    string
+	ClientID   string
+	NodeID     string
+	FileFormat FileFormat
+	Workloads  []*Workload
 }
 
 type ProofOfWork struct {
 	Workload
-	TokenID  string
-	ClientID string
-	NodeID   string
+	TokenID    string
+	ClientID   string
+	NodeID     string
+	FileFormat FileFormat
 }

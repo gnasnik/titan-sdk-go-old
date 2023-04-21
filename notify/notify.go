@@ -8,43 +8,42 @@ import (
 var log = logging.Logger("notification")
 
 type Notification struct {
-	// endOfFileNotify is a synchronous Notification channel that signals the end of File processing.
-	// This channel is used to notify when a processing operation has been completed.
-	endOfFileNotify chan struct{}
-	// When the handleEndOfFileEvent callback function has been successfully executed,
-	// a notification is sent to this channel to indicate that processing has ended.
-	done chan struct{}
+	// endOfFileEvent is used to notify when a file download is completed
+	endOfFileEvent chan struct{}
+	// finished is used to signal when the `handleEndOfFileEvent` callback function has finished its execution
+	finished chan struct{}
 }
 
 // NewNotification returns a new Notification
 func NewNotification() *Notification {
 	return &Notification{
-		endOfFileNotify: make(chan struct{}),
-		done:            make(chan struct{}),
+		endOfFileEvent: make(chan struct{}),
+		finished:       make(chan struct{}),
 	}
 }
 
-// ListenEndOfFile listens to the end of the file event, blocks until a Notification is received from the channel endOfFileNotify,
-// indicating that File processing has ended and then calls the callback function handleEndOfFileEvent.
+// ListenEndOfFile listens for file download completion events. Upon receiving an event, it will trigger the corresponding
+// callback method to handle the event `handleEndOfFileEvent`. Once the callback method finishes processing,
+// a notification will be sent to the `finished` channel, signaling the completion of the event handling.
 func (n *Notification) ListenEndOfFile(ctx context.Context, handleEndOfFileEvent func() error) {
 	for {
 		select {
-		case <-n.endOfFileNotify:
+		case <-n.endOfFileEvent:
 			if err := handleEndOfFileEvent(); err != nil {
-				log.Errorf("handle endOfFile: %v", err)
+				log.Errorf("handle endOfFile event failed: %v", err)
 			}
-			n.done <- struct{}{}
+			n.finished <- struct{}{}
 		case <-ctx.Done():
 			return
 		}
 	}
 }
 
-// NotifyEndOfFile notifies the end of the file and signals that the file processing has been completed.
-func (n *Notification) NotifyEndOfFile() {
-	n.endOfFileNotify <- struct{}{}
+// SendEndOfFileEvent notifies a file download is completed.
+func (n *Notification) SendEndOfFileEvent() {
+	n.endOfFileEvent <- struct{}{}
 
 	select {
-	case <-n.done:
+	case <-n.finished:
 	}
 }
