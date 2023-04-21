@@ -7,7 +7,10 @@ import (
 type TraversalMode int
 
 const (
+	// TraversalModeDFS only supports retrieving CAR files and auto decodes them into the raw file format.
 	TraversalModeDFS TraversalMode = iota + 1
+	// TraversalModeRange allows you to retrieve files of any type, but it does not decode, the files will be retrieved in their original format.
+	// It's important to note that when using `TraversalModeRange` to retrieve a CAR file, the entire file must be downloaded before it can be decoded.
 	TraversalModeRange
 )
 
