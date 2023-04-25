@@ -62,7 +62,7 @@ func (c *Client) GetFile(ctx context.Context, id string) (int64, io.ReadCloser, 
 	case config.TraversalModeRange:
 		return c.getFileByRange(ctx, id)
 	default:
-		return 0, nil, errors.Errorf("unsupported walk algorithm")
+		return 0, nil, errors.Errorf("unsupported traversal mode")
 	}
 }
 

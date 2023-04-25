@@ -21,6 +21,10 @@ const (
 	udpBlock       = types.NATUDPBlock
 )
 
+const (
+	minCandidatesOfDiscovery = 3
+)
+
 // Discover client-side NAT type discovery
 func (s *Service) Discover() (types.NATType, error) {
 	schedulers, err := s.GetSchedulers()
@@ -32,25 +36,34 @@ func (s *Service) Discover() (types.NATType, error) {
 		return unknown, errors.Errorf("can not found scheudler")
 	}
 
-	primaryScheduler := schedulers[0]
+	candidates, err := s.GetCandidates(schedulers[0])
+	if err != nil {
+		return unknown, err
+	}
 
-	// Test I: sends an udp packet to primary scheduler
-	publicAddrPrimary, err := s.GetPublicAddress(primaryScheduler)
+	if len(candidates) == 0 {
+		return unknown, errors.Errorf("can not found candidates")
+	}
+
+	primaryCandidate := candidates[0]
+
+	// Test I: sends an udp packet to primary candidates
+	publicAddrPrimary, err := s.GetPublicAddress(primaryCandidate)
 	if err != nil {
 		return udpBlock, err
 	}
 
 	log.Infof("PublicAddr: %s", publicAddrPrimary)
 
-	if len(schedulers) < 3 {
-		return unknown, errors.Errorf("insufficent schedulers")
+	if len(candidates) < minCandidatesOfDiscovery {
+		return unknown, errors.Errorf("insufficent candidates, want %d got %d", minCandidatesOfDiscovery, len(candidates))
 	}
 
-	secondaryScheduler := schedulers[1]
-	tertiaryScheduler := schedulers[2]
+	secondaryCandidate := candidates[1]
+	tertiaryCandidate := candidates[2]
 
-	// Test II: sends an udp packet to secondary scheduler
-	publicAddrSecondary, err := s.GetPublicAddress(secondaryScheduler)
+	// Test II: sends an udp packet to secondary candidates
+	publicAddrSecondary, err := s.GetPublicAddress(secondaryCandidate)
 	if err != nil {
 		return unknown, err
 	}
@@ -59,20 +72,20 @@ func (s *Service) Discover() (types.NATType, error) {
 		return symmetric, nil
 	}
 
-	// Test III: sends a tcp packet to primaryScheduler from tertiary scheduler
-	err = s.RequestSchedulerToSendPackets(tertiaryScheduler, "tcp", publicAddrPrimary.String())
+	// Test III: sends a tcp packet to primaryCandidate from tertiary candidates
+	err = s.RequestCandidateToSendPackets(tertiaryCandidate, "tcp", publicAddrPrimary.String())
 	if err == nil {
 		return openInternet, nil
 	}
 
-	// Test IV: sends an udp packet to primaryScheduler from tertiary scheduler
-	err = s.RequestSchedulerToSendPackets(tertiaryScheduler, "udp", publicAddrPrimary.String())
+	// Test IV: sends an udp packet to primaryCandidate from tertiary candidates
+	err = s.RequestCandidateToSendPackets(tertiaryCandidate, "udp", publicAddrPrimary.String())
 	if err == nil {
 		return fullCone, nil
 	}
 
-	// Test V: sends an udp packet to primaryScheduler from primary scheduler
-	err = s.RequestSchedulerToSendPackets(primaryScheduler, "udp", publicAddrPrimary.String())
+	// Test V: sends an udp packet to primaryCandidate from primary candidates
+	err = s.RequestCandidateToSendPackets(primaryCandidate, "udp", publicAddrPrimary.String())
 	if err == nil {
 		return restricted, nil
 	}
@@ -111,7 +124,7 @@ func (s *Service) determineClient(ctx context.Context, userNATType types.NATType
 	}
 
 	// Check if the user has an open Internet NAT type, then try to establish a connection through NAT traversal
-	if userNATType == openInternet || userNATType == fullCone || edgeNATType == unknown {
+	if userNATType == openInternet || userNATType == fullCone {
 		if err := s.EstablishConnectionFromEdge(edge); err != nil {
 			return nil, errors.Errorf("establish connection from edge: %v", err)
 		}
@@ -121,7 +134,7 @@ func (s *Service) determineClient(ctx context.Context, userNATType types.NATType
 
 	// Check if the edge and the user both have a restricted cone NAT type, then request the scheduler to connect to the edge node
 	if edgeNATType == restricted || userNATType == restricted {
-		err := s.RequestSchedulerToSendPackets(edge.SchedulerURL, "udp", edge.URL)
+		err := s.RequestCandidateToSendPackets(edge.SchedulerURL, "udp", edge.URL)
 		if err != nil {
 			return nil, errors.Errorf("request scheduler to send packets: %v", err)
 		}
@@ -138,7 +151,7 @@ func (s *Service) determineClient(ctx context.Context, userNATType types.NATType
 	if edgeNATType == portRestricted && userNATType == portRestricted {
 		err := s.SendPackets(edge.URL)
 
-		err = s.RequestSchedulerToSendPackets(edge.SchedulerURL, "udp", edge.URL)
+		err = s.RequestCandidateToSendPackets(edge.SchedulerURL, "udp", edge.URL)
 		if err != nil {
 			return nil, errors.Errorf("request scheduler to send packets: %v", err)
 		}
@@ -155,8 +168,7 @@ func (s *Service) determineClient(ctx context.Context, userNATType types.NATType
 		// TODO: request the scheduler to send packets and guess the port
 		return nil, errors.Errorf("symmetric NAT unimplemented")
 	}
-
-	log.Errorf("unknown NAT type: %v", edgeNATType)
+	
 	return nil, errors.Errorf("unknown NAT type")
 }
 

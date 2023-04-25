@@ -29,6 +29,10 @@ func (n NATType) String() string {
 		return "PortRestricted"
 	case NATSymmetric:
 		return "Symmetric"
+	case NATOpenInternet:
+		return "OpenInternet"
+	case NATUDPBlock:
+		return "UDPBlock"
 	default:
 		return ""
 	}

@@ -381,6 +381,26 @@ func (s *Service) GetSchedulers() ([]string, error) {
 	return out.SchedulerURLs, nil
 }
 
+// GetCandidates get candidates list in the same region
+func (s *Service) GetCandidates(schedulerURL string) ([]string, error) {
+	req := request.Request{
+		Jsonrpc: "2.0",
+		ID:      "1",
+		Method:  "titan.GetCandidateURLsForDetectNat",
+		Params:  nil,
+	}
+
+	data, err := request.PostJsonRPC(s.httpClient, schedulerURL, req, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var out []string
+	err = json.Unmarshal(data, &out)
+
+	return out, nil
+}
+
 // GetPublicAddress return the public address
 func (s *Service) GetPublicAddress(schedulerURL string) (types.Host, error) {
 	serializedParams, err := json.Marshal(params{})
@@ -411,8 +431,8 @@ func (s *Service) GetPublicAddress(schedulerURL string) (types.Host, error) {
 	}, nil
 }
 
-// RequestSchedulerToSendPackets sends packet from server side to determine the application connectivity
-func (s *Service) RequestSchedulerToSendPackets(remoteAddr string, network, url string) error {
+// RequestCandidateToSendPackets sends packet from server side to determine the application connectivity
+func (s *Service) RequestCandidateToSendPackets(remoteAddr string, network, url string) error {
 	serializedParams, err := json.Marshal(params{
 		network, url,
 	})
