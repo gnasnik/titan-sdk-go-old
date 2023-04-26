@@ -36,6 +36,10 @@ func PostJsonRPC(client *http.Client, url string, in Request, requestHeader http
 		return nil, errors.Errorf("send request: %v", err)
 	}
 
+	if out.Error != nil {
+		return nil, out.Error
+	}
+
 	return json.Marshal(out.Result)
 }
 
