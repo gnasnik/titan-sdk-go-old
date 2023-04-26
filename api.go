@@ -50,6 +50,11 @@ func New(opts ...config.Option) (*Client, error) {
 		c.dag = merkledag.NewDAGService(c.titan)
 	}
 
+	_, err = s.Discover()
+	if err != nil {
+		return nil, err
+	}
+
 	go c.notify.ListenEndOfFile(context.Background(), c.titan.EndOfFile)
 
 	return c, nil

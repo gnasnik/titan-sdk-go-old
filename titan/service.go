@@ -67,7 +67,7 @@ func New(options config.Config) (*Service, error) {
 		return nil, errors.Errorf("address or Token is empty")
 	}
 
-	conn, err := net.ListenUDP("udp", nil)
+	conn, err := net.ListenUDP("udp4", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -83,12 +83,8 @@ func New(options config.Config) (*Service, error) {
 		proofs:     make(map[string]*proofParam),
 	}
 
-	s.natType, err = s.Discover()
-	if err != nil {
-		log.Debugf("discover NAT types failed: %v", err)
-	}
-
 	go serverHTTP(conn)
+	go serverTCP(conn)
 
 	return s, nil
 }
@@ -109,6 +105,19 @@ func serverHTTP(conn net.PacketConn) {
 		Handler:   handler,
 	}).Serve(conn)
 
+}
+
+func serverTCP(conn net.PacketConn) {
+	srv := &http.Server{
+		ReadHeaderTimeout: 30 * time.Second,
+	}
+
+	log.Debugf("listen tcp on: %s", conn.LocalAddr().String())
+	ln, le := net.Listen("tcp", conn.LocalAddr().String())
+	if le != nil {
+		log.Errorf("tcp listen failed: %v", le)
+	}
+	srv.Serve(ln)
 }
 
 // GetBlock retrieves a raw block from titan http gateway
@@ -347,6 +356,8 @@ func (s *Service) getEdgeNodesByFile(cid cid.Cid) ([]*types.Edge, error) {
 				SchedulerURL: item.SchedulerURL,
 				SchedulerKey: item.SchedulerKey,
 			}
+
+			log.Debugf("edge node: %s, %s", e.URL, e.NATType)
 			out = append(out, e)
 		}
 	}
@@ -433,8 +444,9 @@ func (s *Service) GetPublicAddress(schedulerURL string) (types.Host, error) {
 
 // RequestCandidateToSendPackets sends packet from server side to determine the application connectivity
 func (s *Service) RequestCandidateToSendPackets(remoteAddr string, network, url string) error {
+	reqURL := fmt.Sprintf("https://%s/ping", url)
 	serializedParams, err := json.Marshal(params{
-		network, url,
+		network, reqURL,
 	})
 	if err != nil {
 		return errors.Errorf("marshaling params failed: %v", err)
@@ -448,6 +460,9 @@ func (s *Service) RequestCandidateToSendPackets(remoteAddr string, network, url 
 	}
 
 	_, err = request.PostJsonRPC(s.httpClient, remoteAddr, req, nil)
+	if err != nil {
+		return err
+	}
 
 	return err
 }

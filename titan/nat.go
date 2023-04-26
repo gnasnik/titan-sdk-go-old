@@ -26,7 +26,11 @@ const (
 )
 
 // Discover client-side NAT type discovery
-func (s *Service) Discover() (types.NATType, error) {
+func (s *Service) Discover() (t types.NATType, e error) {
+	defer func() {
+		s.natType = t
+	}()
+
 	schedulers, err := s.GetSchedulers()
 	if err != nil {
 		return unknown, err
@@ -168,7 +172,7 @@ func (s *Service) determineClient(ctx context.Context, userNATType types.NATType
 		// TODO: request the scheduler to send packets and guess the port
 		return nil, errors.Errorf("symmetric NAT unimplemented")
 	}
-	
+
 	return nil, errors.Errorf("unknown NAT type")
 }
 
