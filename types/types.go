@@ -2,7 +2,6 @@ package types
 
 import (
 	"fmt"
-	"strconv"
 )
 
 type NATType int
@@ -70,8 +69,20 @@ type Edge struct {
 }
 
 func (e Edge) GetNATType() NATType {
-	t, _ := strconv.ParseInt(e.NATType, 10, 64)
-	return NATType(t)
+	switch e.NATType {
+	case "NoNAT":
+		return NATOpenInternet
+	case "SymmetricNAT":
+		return NATSymmetric
+	case "FullConeNAT":
+		return NATFullCone
+	case "RestrictedNAT":
+		return NATRestricted
+	case "PortRestrictedNAT":
+		return NATPortRestricted
+	default:
+		return NATUnknown
+	}
 }
 
 type AccessPoint struct {

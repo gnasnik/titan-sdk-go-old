@@ -63,7 +63,7 @@ type proofParam struct {
 type params []interface{}
 
 func New(options config.Config) (*Service, error) {
-	if options.Address == "" || options.Token == "" {
+	if options.Address == "" {
 		return nil, errors.Errorf("address or Token is empty")
 	}
 
@@ -336,14 +336,20 @@ func (s *Service) getEdgeNodesByFile(cid cid.Cid) ([]*types.Edge, error) {
 	}
 
 	header := http.Header{}
-	header.Add("Authorization", "Bearer "+s.token)
+	if s.token != "" {
+		header.Add("Authorization", "Bearer "+s.token)
+	}
 	data, err := request.PostJsonRPC(s.httpClient, s.baseAPI, req, header)
 	if err != nil {
 		return nil, errors.Errorf("post jsonrpc failed: %v", err)
 	}
 
 	var list []*types.EdgeDownloadInfoList
-	err = json.Unmarshal(data, &list)
+	if err = json.Unmarshal(data, &list); err != nil {
+		return nil, err
+	}
+
+	log.Debugf("got edge nodes: %d", len(list))
 
 	var out []*types.Edge
 	for _, item := range list {
@@ -380,7 +386,9 @@ func (s *Service) GetSchedulers() ([]string, error) {
 	}
 
 	header := http.Header{}
-	header.Add("Authorization", "Bearer "+s.token)
+	if s.token != "" {
+		header.Add("Authorization", "Bearer "+s.token)
+	}
 	data, err := request.PostJsonRPC(s.httpClient, s.baseAPI, req, header)
 	if err != nil {
 		return nil, err
