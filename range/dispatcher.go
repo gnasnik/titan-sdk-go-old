@@ -10,16 +10,16 @@ import (
 )
 
 type dispatcher struct {
-	cid        cid.Cid
-	fileSize   int64
-	rangeSize  int64
-	concurrent int
-	todos      JobQueue
-	workers    chan worker
-	resp       chan response
-	titan      *titan.Service
-	writer     *pipeat.PipeWriterAt
-	reader     *pipeat.PipeReaderAt
+	cid         cid.Cid
+	fileSize    int64
+	rangeSize   int64
+	concurrency int
+	todos       JobQueue
+	workers     chan worker
+	resp        chan response
+	titan       *titan.Service
+	writer      *pipeat.PipeWriterAt
+	reader      *pipeat.PipeReaderAt
 }
 
 type worker struct {
@@ -39,7 +39,7 @@ type job struct {
 }
 
 func (d *dispatcher) initial() {
-	for i := 0; i < d.concurrent; i++ {
+	for i := 0; i < d.concurrency; i++ {
 		d.workers <- worker{id: i}
 	}
 

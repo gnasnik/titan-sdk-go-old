@@ -14,14 +14,21 @@ const (
 	TraversalModeRange
 )
 
+var (
+	defaultListenAddr             = ":8863"
+	defaultRangeConcurrency       = 10
+	defaultRangeSize        int64 = 2 << 20 // 2 MiB
+)
+
 // Config is a set of titan SDK options.
 type Config struct {
-	Address    string
-	Token      string
-	HttpClient *http.Client
-	Mode       TraversalMode
-	Concurrent int
-	ListenAddr string
+	ListenAddr  string
+	Address     string
+	Token       string
+	HttpClient  *http.Client
+	Mode        TraversalMode
+	Concurrency int   // for range mode
+	RangeSize   int64 // for range mode
 }
 
 // Option is a single titan sdk Config.
@@ -30,8 +37,10 @@ type Option func(opts *Config)
 // DefaultOption returns a default set of options.
 func DefaultOption() Config {
 	return Config{
-		Mode:       TraversalModeDFS,
-		ListenAddr: ":8863",
+		Mode:        TraversalModeDFS,
+		ListenAddr:  defaultListenAddr,
+		Concurrency: defaultRangeConcurrency,
+		RangeSize:   defaultRangeSize,
 	}
 }
 
@@ -67,5 +76,28 @@ func TraversalModeOption(mode TraversalMode) Option {
 func ListenAddressOption(addr string) Option {
 	return func(opts *Config) {
 		opts.ListenAddr = addr
+	}
+}
+
+// RangeConcurrencyOption limits the maximum number of concurrency HTTP requests allowed at the same time.
+//
+// This option only works when using `TraversalModeRange` to download files.
+func RangeConcurrencyOption(concurrency int) Option {
+	return func(opts *Config) {
+		opts.Concurrency = concurrency
+	}
+}
+
+// RangeSizeOption specifies the maximum size of each file range that can be downloaded in a single HTTP request.
+// Each range of data is read into memory and then written to the output stream, so the amount of memory used is
+// directly proportional to the size of rangeSize.
+//
+// Specifically, the estimated amount of memory used can be calculated as maxConcurrent x rangeSize.
+// Keep an eye on memory usage when modifying this value, as setting it too high can result in excessive memory usage and potential out-of-memory errors.
+//
+// This option only works when using `TraversalModeRange` to download files.
+func RangeSizeOption(size int64) Option {
+	return func(opts *Config) {
+		opts.RangeSize = size
 	}
 }

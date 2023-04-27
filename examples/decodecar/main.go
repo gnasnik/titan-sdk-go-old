@@ -29,7 +29,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	cid := "QmSUs7pPXL9jqcLSXNgZ92QXB36oXurgRCYzFrzAkYdT5d"
+	cid := "QmbmPTRvxq8W9DKa9CAHk3GmuEdYBkCXScVFko1D4CiJRn"
 	size, reader, err := client.GetFile(context.Background(), cid)
 	if err != nil {
 		log.Fatal(err)

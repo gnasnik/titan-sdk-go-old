@@ -108,7 +108,12 @@ func (c *Client) getFileByRange(ctx context.Context, id string) (int64, io.ReadC
 		return 0, nil, err
 	}
 
-	return byteRange.New(c.titan).GetFile(ctx, cid)
+	r := byteRange.New(c.titan,
+		c.config.RangeSize,
+		c.config.Concurrency,
+	)
+
+	return r.GetFile(ctx, cid)
 }
 
 var _ API = (*Client)(nil)
