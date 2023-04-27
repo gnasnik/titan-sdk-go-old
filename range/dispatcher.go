@@ -2,10 +2,10 @@ package byterange
 
 import (
 	"context"
+	"github.com/eikenb/pipeat"
 	"github.com/gnasnik/titan-sdk-go/titan"
 	"github.com/ipfs/go-cid"
 	"github.com/pkg/errors"
-	"io"
 	"math"
 )
 
@@ -16,14 +16,19 @@ type dispatcher struct {
 	concurrent int
 	todos      JobQueue
 	workers    chan worker
-	resp       []chan []byte
+	resp       chan response
 	titan      *titan.Service
-	writer     *io.PipeWriter
-	reader     *io.PipeReader
+	writer     *pipeat.PipeWriterAt
+	reader     *pipeat.PipeReaderAt
 }
 
 type worker struct {
 	id int
+}
+
+type response struct {
+	offset int64
+	data   []byte
 }
 
 type job struct {
@@ -52,15 +57,13 @@ func (d *dispatcher) initial() {
 			start: start,
 			end:   end,
 		})
-
-		d.resp = append(d.resp, make(chan []byte))
 	}
 }
 
 func (d *dispatcher) run(ctx context.Context) {
 	d.initial()
 
-	go d.writeResp()
+	go d.writeResp(ctx)
 
 	respErr := make(chan struct{})
 
@@ -96,8 +99,12 @@ func (d *dispatcher) run(ctx context.Context) {
 					}
 
 					d.workers <- w
-					d.resp[j.index] <- data[:offset]
+					d.resp <- response{
+						data:   data[:offset],
+						offset: j.start,
+					}
 				}()
+
 			case <-ctx.Done():
 				return
 			case <-respErr:
@@ -109,13 +116,24 @@ func (d *dispatcher) run(ctx context.Context) {
 	return
 }
 
-func (d *dispatcher) writeResp() {
+func (d *dispatcher) writeResp(ctx context.Context) {
 	defer d.finally()
 
-	for _, res := range d.resp {
-		_, err := d.writer.Write(<-res)
-		if err != nil {
-			log.Errorf("write data failed: %v", err)
+	var count int64
+	for {
+		select {
+		case r := <-d.resp:
+			_, err := d.writer.WriteAt(r.data, r.offset)
+			if err != nil {
+				log.Errorf("write data failed: %v", err)
+				continue
+			}
+
+			count += int64(len(r.data))
+			if count >= d.fileSize {
+				return
+			}
+		case <-ctx.Done():
 			return
 		}
 	}
@@ -134,7 +152,7 @@ func (d *dispatcher) finally() {
 		log.Errorf("end of file failed: %v", err)
 	}
 
-	if err := d.reader.Close(); err != nil {
-		log.Errorf("close reader failed: %v", err)
+	if err := d.writer.Close(); err != nil {
+		log.Errorf("close write failed: %v", err)
 	}
 }

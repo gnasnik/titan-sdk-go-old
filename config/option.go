@@ -21,6 +21,7 @@ type Config struct {
 	HttpClient *http.Client
 	Mode       TraversalMode
 	Concurrent int
+	ListenAddr string
 }
 
 // Option is a single titan sdk Config.
@@ -29,7 +30,8 @@ type Option func(opts *Config)
 // DefaultOption returns a default set of options.
 func DefaultOption() Config {
 	return Config{
-		Mode: TraversalModeDFS,
+		Mode:       TraversalModeDFS,
+		ListenAddr: ":8863",
 	}
 }
 
@@ -58,5 +60,12 @@ func Http3ClientOption(client *http.Client) Option {
 func TraversalModeOption(mode TraversalMode) Option {
 	return func(opts *Config) {
 		opts.Mode = mode
+	}
+}
+
+// ListenAddressOption set the listen address for titan client, default is :8863
+func ListenAddressOption(addr string) Option {
+	return func(opts *Config) {
+		opts.ListenAddr = addr
 	}
 }

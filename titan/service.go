@@ -67,7 +67,7 @@ func New(options config.Config) (*Service, error) {
 		return nil, errors.Errorf("address or Token is empty")
 	}
 
-	conn, err := net.ListenUDP("udp4", nil)
+	conn, err := net.ListenPacket("udp4", options.ListenAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -274,6 +274,10 @@ func (s *Service) GetRange(ctx context.Context, cid cid.Cid, start, end int64) (
 	return size, data, nil
 }
 
+func (s *Service) EdgeSize() int {
+	return len(s.accessibleEdges)
+}
+
 type proofOfWorkParams struct {
 	cid        cid.Cid
 	tStart     time.Time
@@ -349,8 +353,6 @@ func (s *Service) getEdgeNodesByFile(cid cid.Cid) ([]*types.Edge, error) {
 		return nil, err
 	}
 
-	log.Debugf("got edge nodes: %d", len(list))
-
 	var out []*types.Edge
 	for _, item := range list {
 		for _, edge := range item.Infos {
@@ -362,11 +364,12 @@ func (s *Service) getEdgeNodesByFile(cid cid.Cid) ([]*types.Edge, error) {
 				SchedulerURL: item.SchedulerURL,
 				SchedulerKey: item.SchedulerKey,
 			}
-
-			log.Debugf("edge node: %s, %s", e.URL, e.NATType)
+			log.Debugf("got edge node: %s, %s", e.URL, e.NATType)
 			out = append(out, e)
 		}
 	}
+
+	log.Debugf("got edge nodes: %d", len(out))
 
 	return out, err
 }
@@ -477,7 +480,7 @@ func (s *Service) RequestCandidateToSendPackets(remoteAddr string, network, url 
 
 // EstablishConnectionFromEdge creates a connection from edge node side for the application though the scheduler
 func (s *Service) EstablishConnectionFromEdge(edge *types.Edge) error {
-	serializedParams, err := json.Marshal(params{edge})
+	serializedParams, err := json.Marshal(params{edge.ToNatPunchReq()})
 	if err != nil {
 		return errors.Errorf("marshaling params failed: %v", err)
 	}
@@ -496,21 +499,27 @@ func (s *Service) EstablishConnectionFromEdge(edge *types.Edge) error {
 
 // SendPackets sends packet to the edge node
 func (s *Service) SendPackets(remoteAddr string) error {
-	serializedParams, err := json.Marshal(params{})
+	addr, err := net.ResolveUDPAddr("udp", remoteAddr)
 	if err != nil {
-		return errors.Errorf("marshaling params failed: %v", err)
+		return err
 	}
 
-	req := request.Request{
-		Jsonrpc: "2.0",
-		ID:      "1",
-		Method:  "titan.Version",
-		Params:  serializedParams,
+	_, err = s.conn.WriteTo([]byte("ping"), addr)
+	if err != nil {
+		return err
 	}
 
-	_, err = request.PostJsonRPC(s.httpClient, remoteAddr, req, nil)
-
-	return err
+	//req := request.Request{
+	//	Jsonrpc: "2.0",
+	//	ID:      "1",
+	//	Method:  "titan.Version",
+	//	Params:  nil,
+	//}
+	//
+	//_, err := request.PostJsonRPC(s.httpClient, remoteAddr, req, nil)
+	//
+	//return err
+	return nil
 }
 
 // SubmitProofOfWork submits a proof of work for a downloaded file

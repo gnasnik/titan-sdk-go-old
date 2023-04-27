@@ -85,6 +85,21 @@ func (e Edge) GetNATType() NATType {
 	}
 }
 
+type NatPunchReq struct {
+	Tk     *Token
+	NodeID string
+	// seconds
+	Timeout int
+}
+
+func (e Edge) ToNatPunchReq() *NatPunchReq {
+	return &NatPunchReq{
+		Tk:      e.Token,
+		NodeID:  e.NodeID,
+		Timeout: 10,
+	}
+}
+
 type AccessPoint struct {
 	AreaID        string
 	SchedulerURLs []string

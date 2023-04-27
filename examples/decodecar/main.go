@@ -19,12 +19,10 @@ import (
 )
 
 func main() {
-	address := os.Getenv("TITAN_ADDRESS")
-	token := os.Getenv("TITAN_TOKEN")
+	address := os.Getenv("LOCATOR_API_INFO")
 
 	client, err := titan.New(
 		config.AddressOption(address),
-		config.TokenOption(token),
 		config.TraversalModeOption(config.TraversalModeRange),
 	)
 	if err != nil {

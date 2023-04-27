@@ -2,6 +2,7 @@ package byterange
 
 import (
 	"context"
+	"github.com/eikenb/pipeat"
 	"github.com/gnasnik/titan-sdk-go/titan"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log"
@@ -11,14 +12,14 @@ import (
 var log = logging.Logger("range")
 
 var (
-	// concurrent limits the maximum number of concurrent HTTP requests allowed at the same time.
-	concurrent int64 = 10 // TODO: make this configurable
+	// maxConcurrent limits the maximum number of maxConcurrent HTTP requests allowed at the same time.
+	maxConcurrent int = 10 // TODO: make this configurable
 
 	// rangeSize specifies the maximum size of each file range that can be downloaded in a single HTTP request.
 	// Each range of data is read into memory and then written to the output stream, so the amount of memory used is
 	// directly proportional to the size of rangeSize.
 	//
-	// Specifically, the estimated amount of memory used can be calculated as concurrent x rangeSize.
+	// Specifically, the estimated amount of memory used can be calculated as maxConcurrent x rangeSize.
 	// Keep an eye on memory usage when modifying this value, as setting it too high can result in excessive memory usage and potential out-of-memory errors.
 	rangeSize int64 = 10 << 20 // 10 MiB
 )
@@ -45,18 +46,26 @@ func (r *Range) GetFile(ctx context.Context, cid cid.Cid) (int64, io.ReadCloser,
 		return 0, nil, err
 	}
 
-	reader, writer := io.Pipe()
+	reader, writer, err := pipeat.Pipe()
+	if err != nil {
+		return 0, nil, err
+	}
+
+	concurrent := r.titan.EdgeSize()
+	if concurrent > maxConcurrent {
+		concurrent = maxConcurrent
+	}
 
 	(&dispatcher{
 		cid:        cid,
 		fileSize:   fileSize,
 		rangeSize:  rangeSize,
-		concurrent: int(concurrent),
+		concurrent: concurrent,
 		titan:      r.titan,
 		reader:     reader,
 		writer:     writer,
 		workers:    make(chan worker, concurrent),
-		resp:       make([]chan []byte, 0),
+		resp:       make(chan response, 1),
 	}).run(ctx)
 
 	return fileSize, reader, nil

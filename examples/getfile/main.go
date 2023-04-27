@@ -11,19 +11,17 @@ import (
 )
 
 func main() {
-	address := os.Getenv("TITAN_ADDRESS")
-	token := os.Getenv("TITAN_TOKEN")
+	address := os.Getenv("LOCATOR_API_INFO")
 
 	client, err := titan.New(
 		config.AddressOption(address),
-		config.TokenOption(token),
 		config.TraversalModeOption(config.TraversalModeRange),
 	)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	cid := "QmWycm5kPsDBLPFdknzyuwy1yqVgwo1cojedQLjNnVCxjm"
+	cid := "QmbmPTRvxq8W9DKa9CAHk3GmuEdYBkCXScVFko1D4CiJRn"
 	size, reader, err := client.GetFile(context.Background(), cid)
 	if err != nil {
 		log.Fatal(err)
