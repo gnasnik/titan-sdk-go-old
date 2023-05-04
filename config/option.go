@@ -14,7 +14,7 @@ const (
 	TraversalModeRange
 )
 
-var (
+const (
 	defaultListenAddr             = ":8863"
 	defaultRangeConcurrency       = 10
 	defaultRangeSize        int64 = 2 << 20 // 2 MiB

@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"time"
 )
 
 type NATType int
@@ -89,14 +90,14 @@ type NatPunchReq struct {
 	Tk     *Token
 	NodeID string
 	// seconds
-	Timeout int
+	Timeout time.Duration
 }
 
 func (e Edge) ToNatPunchReq() *NatPunchReq {
 	return &NatPunchReq{
 		Tk:      e.Token,
 		NodeID:  e.NodeID,
-		Timeout: 10,
+		Timeout: 30 * time.Second,
 	}
 }
 

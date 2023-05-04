@@ -16,6 +16,7 @@ import (
 	logging "github.com/ipfs/go-log"
 	"github.com/pkg/errors"
 	"github.com/quic-go/quic-go/http3"
+	"golang.org/x/xerrors"
 	"io"
 	"math/rand"
 	"net"
@@ -251,6 +252,7 @@ func (s *Service) GetRange(ctx context.Context, cid cid.Cid, start, end int64) (
 	header := http.Header{}
 	header.Add("Range", fmt.Sprintf("bytes=%d-%d", start, end))
 
+	log.Debugf("get range: %s", edge.URL)
 	size, data, err := getData(client, edge, namespace, formatCAR, header)
 	if err != nil {
 		return 0, nil, errors.Errorf("post request failed: %v", err)
@@ -364,7 +366,7 @@ func (s *Service) getEdgeNodesByFile(cid cid.Cid) ([]*types.Edge, error) {
 				SchedulerURL: item.SchedulerURL,
 				SchedulerKey: item.SchedulerKey,
 			}
-			log.Debugf("got edge node: %s, %s", e.URL, e.NATType)
+			log.Debugf("got edge node: %s, %s, %s", e.NodeID, e.URL, e.NATType)
 			out = append(out, e)
 		}
 	}
@@ -499,26 +501,42 @@ func (s *Service) EstablishConnectionFromEdge(edge *types.Edge) error {
 
 // SendPackets sends packet to the edge node
 func (s *Service) SendPackets(remoteAddr string) error {
-	addr, err := net.ResolveUDPAddr("udp", remoteAddr)
-	if err != nil {
-		return err
-	}
+	go func() {
+		addr, err := net.ResolveUDPAddr("udp", remoteAddr)
+		if err != nil {
+			return
+		}
 
-	_, err = s.conn.WriteTo([]byte("ping"), addr)
-	if err != nil {
-		return err
-	}
+		_, err = s.conn.WriteTo([]byte("ping"), addr)
+		if err != nil {
+			return
+		}
+	}()
 
-	//req := request.Request{
-	//	Jsonrpc: "2.0",
-	//	ID:      "1",
-	//	Method:  "titan.Version",
-	//	Params:  nil,
-	//}
-	//
-	//_, err := request.PostJsonRPC(s.httpClient, remoteAddr, req, nil)
-	//
-	//return err
+	go func() {
+		req := request.Request{
+			Jsonrpc: "2.0",
+			ID:      "1",
+			Method:  "titan.Version",
+			Params:  nil,
+		}
+
+		request.PostJsonRPC(s.httpClient, remoteAddr, req, nil)
+
+		return
+	}()
+
+	url := fmt.Sprintf("https://%s/rpc/v0", remoteAddr)
+	client := s.httpClient
+	client.Timeout = 30 * time.Second
+	resp, err := client.Get(url)
+	if err != nil {
+		return xerrors.Errorf("http3 client get error: %w, url: %s", err, url)
+	}
+	defer resp.Body.Close()
+
+	log.Debugf("send packets to %s successfully", remoteAddr)
+
 	return nil
 }
 
