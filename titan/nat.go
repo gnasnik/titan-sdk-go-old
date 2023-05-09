@@ -108,18 +108,21 @@ func (s *Service) Discover() (t types.NATType, e error) {
 // and added to the list of accessible accessibleEdges.
 func (s *Service) filterAccessibleEdges(ctx context.Context, edges []*types.Edge) error {
 	for _, edge := range edges {
-		go func() {
-			client, err := s.determineEdgeClient(ctx, s.natType, edge)
-			if err != nil {
-				log.Errorf("determine edge %s(%s) http client failed: %v", edge.NodeID, edge.URL, err)
-				return
-			}
+		if edge.GetNATType() == symmetric {
+			log.Warnf("symmetric NAT unimplemented")
+			continue
+		}
 
-			s.clk.Lock()
-			s.accessibleEdges = append(s.accessibleEdges, edge)
-			s.clients[edge.NodeID] = client
-			s.clk.Unlock()
-		}()
+		client, err := s.determineEdgeClient(ctx, s.natType, edge)
+		if err != nil {
+			log.Errorf("determine edge %s(%s) http client failed: %v", edge.NodeID, edge.URL, err)
+			continue
+		}
+
+		s.clk.Lock()
+		s.accessibleEdges = append(s.accessibleEdges, edge)
+		s.clients[edge.NodeID] = client
+		s.clk.Unlock()
 	}
 	return nil
 }

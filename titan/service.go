@@ -16,7 +16,6 @@ import (
 	logging "github.com/ipfs/go-log"
 	"github.com/pkg/errors"
 	"github.com/quic-go/quic-go/http3"
-	"golang.org/x/xerrors"
 	"io"
 	"math/rand"
 	"net"
@@ -77,7 +76,7 @@ func New(options config.Config) (*Service, error) {
 		baseAPI:    options.Address + "/rpc/v0",
 		token:      options.Token,
 		httpClient: defaultHttpClient(conn),
-		count:      rand.Int(),
+		count:      rand.Intn(100),
 		conn:       conn,
 		started:    false,
 		clients:    make(map[string]*http.Client),
@@ -141,12 +140,11 @@ func (s *Service) GetBlock(ctx context.Context, cid cid.Cid) (blocks.Block, erro
 	}
 
 	proofs := &proofOfWorkParams{
-		cid:        cid,
-		tStart:     start,
-		tEnd:       time.Now(),
-		size:       size,
-		edge:       edge,
-		fileFormat: types.RawFile,
+		cid:    cid,
+		tStart: start,
+		tEnd:   time.Now(),
+		size:   size,
+		edge:   edge,
 	}
 
 	if err = s.generateProofOfWork(proofs); err != nil {
@@ -259,14 +257,13 @@ func (s *Service) GetRange(ctx context.Context, cid cid.Cid, start, end int64) (
 	}
 
 	proofs := &proofOfWorkParams{
-		cid:        cid,
-		tStart:     startTime,
-		tEnd:       time.Now(),
-		size:       size,
-		edge:       edge,
-		rStart:     start,
-		rEnd:       end,
-		fileFormat: types.CarFile,
+		cid:    cid,
+		tStart: startTime,
+		tEnd:   time.Now(),
+		size:   size,
+		edge:   edge,
+		rStart: start,
+		rEnd:   end,
 	}
 
 	if err = s.generateProofOfWork(proofs); err != nil {
@@ -281,14 +278,13 @@ func (s *Service) EdgeSize() int {
 }
 
 type proofOfWorkParams struct {
-	cid        cid.Cid
-	tStart     time.Time
-	tEnd       time.Time
-	size       int64
-	edge       *types.Edge
-	rStart     int64
-	rEnd       int64
-	fileFormat types.FileFormat
+	cid    cid.Cid
+	tStart time.Time
+	tEnd   time.Time
+	size   int64
+	edge   *types.Edge
+	rStart int64
+	rEnd   int64
 }
 
 // generateProofOfWork generates proofs of work for per request.
@@ -306,19 +302,13 @@ func (s *Service) generateProofOfWork(params *proofOfWorkParams) error {
 	}
 
 	proofs := &types.ProofOfWork{
-		TokenID:    params.edge.Token.ID,
-		NodeID:     params.edge.NodeID,
-		FileFormat: params.fileFormat,
-		Workload: types.Workload{
-			CID:           params.cid.String(),
+		TokenID: params.edge.Token.ID,
+		NodeID:  params.edge.NodeID,
+		Workload: &types.Workload{
 			StartTime:     params.tStart.Unix(),
 			EndTime:       params.tEnd.Unix(),
 			DownloadSpeed: speed,
 			DownloadSize:  params.size,
-			Range: &types.FileRange{
-				Start: params.rStart,
-				End:   params.rEnd,
-			},
 		},
 	}
 
@@ -366,7 +356,7 @@ func (s *Service) getEdgeNodesByFile(cid cid.Cid) ([]*types.Edge, error) {
 				SchedulerURL: item.SchedulerURL,
 				SchedulerKey: item.SchedulerKey,
 			}
-			log.Debugf("got edge node: %s, %s, %s", e.NodeID, e.URL, e.NATType)
+			log.Debugf("got edge node: id: %s, ip: %s, NAT: %s", e.NodeID, e.URL, e.NATType)
 			out = append(out, e)
 		}
 	}
@@ -502,18 +492,6 @@ func (s *Service) EstablishConnectionFromEdge(edge *types.Edge) error {
 // SendPackets sends packet to the edge node
 func (s *Service) SendPackets(remoteAddr string) error {
 	go func() {
-		addr, err := net.ResolveUDPAddr("udp", remoteAddr)
-		if err != nil {
-			return
-		}
-
-		_, err = s.conn.WriteTo([]byte("ping"), addr)
-		if err != nil {
-			return
-		}
-	}()
-
-	go func() {
 		req := request.Request{
 			Jsonrpc: "2.0",
 			ID:      "1",
@@ -522,20 +500,7 @@ func (s *Service) SendPackets(remoteAddr string) error {
 		}
 
 		request.PostJsonRPC(s.httpClient, remoteAddr, req, nil)
-
-		return
 	}()
-
-	url := fmt.Sprintf("https://%s/rpc/v0", remoteAddr)
-	client := s.httpClient
-	client.Timeout = 30 * time.Second
-	resp, err := client.Get(url)
-	if err != nil {
-		return xerrors.Errorf("http3 client get error: %w, url: %s", err, url)
-	}
-	defer resp.Body.Close()
-
-	log.Debugf("send packets to %s successfully", remoteAddr)
 
 	return nil
 }
@@ -560,7 +525,7 @@ func (s *Service) SubmitProofOfWork(schedulerAddr string, data []byte) error {
 	req := request.Request{
 		Jsonrpc: "2.0",
 		ID:      "1",
-		Method:  "titan.SubmitUserProofsOfWork",
+		Method:  "titan.SubmitUserWorkloadReport",
 		Params:  serializedParams,
 	}
 
@@ -613,7 +578,7 @@ func (s *Service) EndOfFile() error {
 		go func(addr string, params *proofParam) {
 			defer wg.Done()
 
-			data, err := encrypt(params.Key, toWorkloadList(params.Proofs))
+			data, err := encrypt(params.Key, params.Proofs)
 			if err != nil {
 				log.Errorf("encrypting proof failed: %v", err)
 				return
@@ -642,28 +607,4 @@ func encrypt(key string, value interface{}) ([]byte, error) {
 	}
 
 	return crypto.Encrypt(data, pub)
-}
-
-func toWorkloadList(proofs []*types.ProofOfWork) []*types.WorkloadList {
-	workloadInNode := make(map[string]*types.WorkloadList)
-	for _, proof := range proofs {
-		_, ok := workloadInNode[proof.NodeID]
-		if !ok {
-			workloadInNode[proof.NodeID] = &types.WorkloadList{
-				TokenID:    proof.TokenID,
-				ClientID:   proof.ClientID,
-				NodeID:     proof.NodeID,
-				FileFormat: proof.FileFormat,
-				Workloads:  make([]*types.Workload, 0),
-			}
-		}
-		workloadInNode[proof.NodeID].Workloads = append(workloadInNode[proof.NodeID].Workloads, &proof.Workload)
-	}
-
-	var out []*types.WorkloadList
-	for _, workloadList := range workloadInNode {
-		out = append(out, workloadList)
-	}
-
-	return out
 }

@@ -17,7 +17,7 @@ const (
 const (
 	defaultListenAddr             = ":8863"
 	defaultRangeConcurrency       = 10
-	defaultRangeSize        int64 = 2 << 20 // 2 MiB
+	defaultRangeSize        int64 = 1 << 20 // 10 MiB
 )
 
 // Config is a set of titan SDK options.
