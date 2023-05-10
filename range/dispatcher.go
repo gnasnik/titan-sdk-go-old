@@ -78,6 +78,10 @@ func (d *dispatcher) run(ctx context.Context) {
 				}
 
 				go func() {
+					if j.retry > 0 {
+						log.Debugf("fetch data (retries: %d)", j.retry)
+					}
+
 					data, err := d.fetch(ctx, d.cid, j.start, j.end)
 					if err != nil {
 						log.Errorf("fetch data failed: %v", err)
@@ -86,17 +90,14 @@ func (d *dispatcher) run(ctx context.Context) {
 							j.retry++
 							d.todos.PushFront(j)
 						} else {
-							close(respErr)
+							respErr <- struct{}{}
 						}
+
+						d.workers <- w
+						return
 					}
 
-					size := int64(len(data))
 					offset := j.end - j.start
-
-					if size < offset {
-						offset = size - 1
-						log.Errorf("fetch data size not match, want: %d, got: %d", offset, size)
-					}
 
 					d.workers <- w
 					d.resp <- response{
@@ -108,6 +109,7 @@ func (d *dispatcher) run(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-respErr:
+				d.writer.Close()
 				return
 			}
 		}

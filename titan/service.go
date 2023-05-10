@@ -73,7 +73,7 @@ func New(options config.Config) (*Service, error) {
 	}
 
 	s := &Service{
-		baseAPI:    options.Address + "/rpc/v0",
+		baseAPI:    getRpcV0URL(options.Address),
 		token:      options.Token,
 		httpClient: defaultHttpClient(conn),
 		count:      rand.Intn(100),
@@ -87,6 +87,10 @@ func New(options config.Config) (*Service, error) {
 	go serverTCP(conn)
 
 	return s, nil
+}
+
+func getRpcV0URL(baseURL string) string {
+	return fmt.Sprintf("%s/rpc/v0", baseURL)
 }
 
 func serverHTTP(conn net.PacketConn) {
@@ -250,7 +254,7 @@ func (s *Service) GetRange(ctx context.Context, cid cid.Cid, start, end int64) (
 	header := http.Header{}
 	header.Add("Range", fmt.Sprintf("bytes=%d-%d", start, end))
 
-	log.Debugf("get range: %s", edge.URL)
+	log.Debugf("get range data from: %s", edge.URL)
 	size, data, err := getData(client, edge, namespace, formatCAR, header)
 	if err != nil {
 		return 0, nil, errors.Errorf("post request failed: %v", err)
@@ -490,19 +494,17 @@ func (s *Service) EstablishConnectionFromEdge(edge *types.Edge) error {
 }
 
 // SendPackets sends packet to the edge node
-func (s *Service) SendPackets(remoteAddr string) error {
-	go func() {
-		req := request.Request{
-			Jsonrpc: "2.0",
-			ID:      "1",
-			Method:  "titan.Version",
-			Params:  nil,
-		}
+func (s *Service) SendPackets(client *http.Client, remoteAddr string) error {
+	req := request.Request{
+		Jsonrpc: "2.0",
+		ID:      "1",
+		Method:  "titan.Version",
+		Params:  nil,
+	}
 
-		request.PostJsonRPC(s.httpClient, remoteAddr, req, nil)
-	}()
-
-	return nil
+	rpcURL := getRpcV0URL(remoteAddr)
+	_, err := request.PostJsonRPC(client, rpcURL, req, nil)
+	return err
 }
 
 // SubmitProofOfWork submits a proof of work for a downloaded file
