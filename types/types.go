@@ -48,7 +48,7 @@ type Token struct {
 }
 
 type EdgeDownloadInfo struct {
-	URL     string
+	Address string
 	Tk      *Token
 	NodeID  string
 	NatType string
@@ -61,7 +61,7 @@ type EdgeDownloadInfoList struct {
 }
 
 type Edge struct {
-	URL          string
+	Address      string
 	Token        *Token
 	NodeID       string
 	NATType      string

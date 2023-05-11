@@ -178,7 +178,7 @@ func getData(client *http.Client, edge *types.Edge, namespace string, format str
 		return 0, nil, errors.Errorf("send request: %v", err)
 	}
 
-	resp, err := request.NewBuilder(client, edge.URL, namespace, requestHeader).
+	resp, err := request.NewBuilder(client, edge.Address, namespace, requestHeader).
 		Option("format", format).
 		BodyBytes(body).Get(context.Background())
 	if err != nil {
@@ -254,7 +254,7 @@ func (s *Service) GetRange(ctx context.Context, cid cid.Cid, start, end int64) (
 	header := http.Header{}
 	header.Add("Range", fmt.Sprintf("bytes=%d-%d", start, end))
 
-	log.Debugf("get range data from: %s", edge.URL)
+	log.Debugf("get range data from: %s", edge.Address)
 	size, data, err := getData(client, edge, namespace, formatCAR, header)
 	if err != nil {
 		return 0, nil, errors.Errorf("post request failed: %v", err)
@@ -354,13 +354,13 @@ func (s *Service) getEdgeNodesByFile(cid cid.Cid) ([]*types.Edge, error) {
 		for _, edge := range item.Infos {
 			e := &types.Edge{
 				NodeID:       edge.NodeID,
-				URL:          edge.URL,
+				Address:      edge.Address,
 				Token:        edge.Tk,
 				NATType:      edge.NatType,
 				SchedulerURL: item.SchedulerURL,
 				SchedulerKey: item.SchedulerKey,
 			}
-			log.Debugf("got edge node: id: %s, ip: %s, NAT: %s", e.NodeID, e.URL, e.NATType)
+			log.Debugf("got edge node: id: %s, ip: %s, NAT: %s", e.NodeID, e.Address, e.NATType)
 			out = append(out, e)
 		}
 	}

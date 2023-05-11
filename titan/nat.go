@@ -115,13 +115,13 @@ func (s *Service) filterAccessibleEdges(ctx context.Context, edges []*types.Edge
 
 		client, err := s.determineEdgeClient(ctx, s.natType, edge)
 		if err != nil {
-			log.Errorf("determine edge %s(%s) http client failed: %v", edge.NodeID, edge.URL, err)
+			log.Errorf("determine edge %s(%s) http client failed: %v", edge.NodeID, edge.Address, err)
 			continue
 		}
 
-		err = s.SendPackets(client, edge.URL)
+		err = s.SendPackets(client, edge.Address)
 		if err != nil {
-			log.Warnf("send packets to edge %s(%s) failed: %v", edge.NodeID, edge.URL, err)
+			log.Warnf("send packets to edge %s(%s) failed: %v", edge.NodeID, edge.Address, err)
 			continue
 		}
 
@@ -160,7 +160,7 @@ func (s *Service) determineEdgeClient(ctx context.Context, userNATType types.NAT
 			return nil, errors.Errorf("request candidate to send packets: %v", err)
 		}
 
-		conn, err := createConnection(ctx, s.conn, edge.URL)
+		conn, err := createConnection(ctx, s.conn, edge.Address)
 		if err != nil {
 			return nil, errors.Errorf("create connection: %v", err)
 		}
@@ -170,14 +170,14 @@ func (s *Service) determineEdgeClient(ctx context.Context, userNATType types.NAT
 
 	// Check if the edge and the user both have a restricted port cone NAT type, then try to send packets to the edge and request the scheduler to do so as well
 	if edgeNATType == portRestricted && userNATType == portRestricted {
-		go s.SendPackets(s.httpClient, edge.URL)
+		go s.SendPackets(s.httpClient, edge.Address)
 
 		err := s.EstablishConnectionFromEdge(edge)
 		if err != nil {
 			return nil, errors.Errorf("request candidate to send packets: %v", err)
 		}
 
-		conn, err := createConnection(ctx, s.conn, edge.URL)
+		conn, err := createConnection(ctx, s.conn, edge.Address)
 		if err != nil {
 			return nil, errors.Errorf("create connection: %v", err)
 		}
