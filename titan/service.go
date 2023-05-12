@@ -16,6 +16,7 @@ import (
 	logging "github.com/ipfs/go-log"
 	"github.com/pkg/errors"
 	"github.com/quic-go/quic-go/http3"
+	"golang.org/x/sync/errgroup"
 	"io"
 	"math/rand"
 	"net"
@@ -56,8 +57,9 @@ type Service struct {
 }
 
 type proofParam struct {
-	Proofs []*types.ProofOfWork
-	Key    string
+	Proofs       *types.ProofOfWork
+	SchedulerKey string
+	SchedulerURL string
 }
 
 type params []interface{}
@@ -296,27 +298,38 @@ func (s *Service) generateProofOfWork(params *proofOfWorkParams) error {
 	cost := params.tEnd.Sub(params.tStart)
 	speed := params.size / int64(cost)
 	url := params.edge.SchedulerURL
+	key := params.edge.SchedulerKey
+
+	newProof := &proofParam{
+		Proofs: &types.ProofOfWork{
+			TokenID: params.edge.Token.ID,
+			NodeID:  params.edge.NodeID,
+			Workload: &types.Workload{
+				StartTime:     params.tStart.Unix(),
+				EndTime:       params.tEnd.Unix(),
+				DownloadSpeed: speed,
+				DownloadSize:  params.size,
+			},
+		},
+		SchedulerURL: url,
+		SchedulerKey: key,
+	}
 
 	s.plk.Lock()
-	if _, ok := s.proofs[url]; !ok {
-		s.proofs[url] = &proofParam{
-			Proofs: make([]*types.ProofOfWork, 0),
-			Key:    params.edge.SchedulerKey,
+
+	prev, ok := s.proofs[params.edge.Token.ID]
+	if ok {
+		prevWorkload := prev.Proofs.Workload
+		newWorkload := newProof.Proofs.Workload
+		newProof.Proofs.Workload = &types.Workload{
+			StartTime:     prevWorkload.StartTime,
+			EndTime:       newWorkload.EndTime,
+			DownloadSpeed: (prevWorkload.DownloadSpeed + newWorkload.DownloadSpeed) / 2,
+			DownloadSize:  prevWorkload.DownloadSize + newWorkload.DownloadSize,
 		}
 	}
 
-	proofs := &types.ProofOfWork{
-		TokenID: params.edge.Token.ID,
-		NodeID:  params.edge.NodeID,
-		Workload: &types.Workload{
-			StartTime:     params.tStart.Unix(),
-			EndTime:       params.tEnd.Unix(),
-			DownloadSpeed: speed,
-			DownloadSize:  params.size,
-		},
-	}
-
-	s.proofs[url].Proofs = append(s.proofs[url].Proofs, proofs)
+	s.proofs[params.edge.Token.ID] = newProof
 	s.plk.Unlock()
 
 	return nil
@@ -572,29 +585,21 @@ func (s *Service) cleanup() {
 func (s *Service) EndOfFile() error {
 	defer s.cleanup()
 
-	var wg sync.WaitGroup
-	wg.Add(len(s.proofs))
-
+	var eg errgroup.Group
 	s.plk.Lock()
-	for schedulerAddr, pp := range s.proofs {
-		go func(addr string, params *proofParam) {
-			defer wg.Done()
-
-			data, err := encrypt(params.Key, params.Proofs)
+	for _, param := range s.proofs {
+		eg.Go(func() error {
+			data, err := encrypt(param.SchedulerKey, param.Proofs)
 			if err != nil {
-				log.Errorf("encrypting proof failed: %v", err)
-				return
+				return errors.Errorf("encrypting proof failed: %v", err)
 			}
 
-			if err := s.SubmitProofOfWork(addr, data); err != nil {
-				log.Errorf("submit proof of work failed: %v", err)
-			}
-		}(schedulerAddr, pp)
+			return s.SubmitProofOfWork(param.SchedulerURL, data)
+		})
 	}
 	s.plk.Unlock()
 
-	wg.Wait()
-	return nil
+	return eg.Wait()
 }
 
 func encrypt(key string, value interface{}) ([]byte, error) {
