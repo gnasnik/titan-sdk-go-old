@@ -57,7 +57,7 @@ type Service struct {
 }
 
 type proofParam struct {
-	Proofs       *types.ProofOfWork
+	Proofs       *types.WorkloadReport
 	SchedulerKey string
 	SchedulerURL string
 }
@@ -256,7 +256,7 @@ func (s *Service) GetRange(ctx context.Context, cid cid.Cid, start, end int64) (
 	header := http.Header{}
 	header.Add("Range", fmt.Sprintf("bytes=%d-%d", start, end))
 
-	log.Debugf("get range data from: %s", edge.Address)
+	//log.Debugf("get range data from: %s", edge.Address)
 	size, data, err := getData(client, edge, namespace, formatCAR, header)
 	if err != nil {
 		return 0, nil, errors.Errorf("post request failed: %v", err)
@@ -301,7 +301,7 @@ func (s *Service) generateProofOfWork(params *proofOfWorkParams) error {
 	key := params.edge.SchedulerKey
 
 	newProof := &proofParam{
-		Proofs: &types.ProofOfWork{
+		Proofs: &types.WorkloadReport{
 			TokenID: params.edge.Token.ID,
 			NodeID:  params.edge.NodeID,
 			Workload: &types.Workload{
@@ -481,7 +481,7 @@ func (s *Service) RequestCandidateToSendPackets(remoteAddr string, network, url 
 
 	_, err = request.PostJsonRPC(s.httpClient, remoteAddr, req, nil)
 	if err != nil {
-		return err
+		return errors.Errorf("request candidate to send packets failed: %v", err)
 	}
 
 	return err
@@ -502,6 +502,9 @@ func (s *Service) EstablishConnectionFromEdge(edge *types.Edge) error {
 	}
 
 	_, err = request.PostJsonRPC(s.httpClient, edge.SchedulerURL, req, nil)
+	if err != nil {
+		return errors.Errorf("establish connection from edge failed: %v", err)
+	}
 
 	return err
 }
@@ -517,6 +520,10 @@ func (s *Service) SendPackets(client *http.Client, remoteAddr string) error {
 
 	rpcURL := getRpcV0URL(remoteAddr)
 	_, err := request.PostJsonRPC(client, rpcURL, req, nil)
+	if err != nil {
+		return errors.Errorf("send packet failed: %v", err)
+	}
+
 	return err
 }
 
@@ -545,8 +552,11 @@ func (s *Service) SubmitProofOfWork(schedulerAddr string, data []byte) error {
 	}
 
 	_, err = request.PostJsonRPC(s.httpClient, schedulerAddr, req, nil)
+	if err != nil {
+		return errors.Errorf("submitting proof of work failed: %v", err)
+	}
 
-	return err
+	return nil
 }
 
 func getPushURL(addr string) (string, error) {
@@ -585,20 +595,35 @@ func (s *Service) cleanup() {
 func (s *Service) EndOfFile() error {
 	defer s.cleanup()
 
-	var eg errgroup.Group
 	s.plk.Lock()
+	keyInScheduler := make(map[string]string)
+	schedulerGroup := make(map[string][]*types.WorkloadReport)
 	for _, param := range s.proofs {
+		_, ok := schedulerGroup[param.SchedulerURL]
+		if !ok {
+			schedulerGroup[param.SchedulerURL] = make([]*types.WorkloadReport, 0)
+		}
+		keyInScheduler[param.SchedulerURL] = param.SchedulerKey
+		schedulerGroup[param.SchedulerURL] = append(schedulerGroup[param.SchedulerURL], param.Proofs)
+	}
+	s.plk.Unlock()
+
+	var eg errgroup.Group
+	for url, paramList := range schedulerGroup {
+		if len(paramList) == 0 {
+			continue
+		}
+
 		eg.Go(func() error {
-			data, err := encrypt(param.SchedulerKey, param.Proofs)
+			key := keyInScheduler[url]
+			data, err := encrypt(key, paramList)
 			if err != nil {
 				return errors.Errorf("encrypting proof failed: %v", err)
 			}
 
-			return s.SubmitProofOfWork(param.SchedulerURL, data)
+			return s.SubmitProofOfWork(url, data)
 		})
 	}
-	s.plk.Unlock()
-
 	return eg.Wait()
 }
 

@@ -7,8 +7,10 @@ import (
 	"github.com/pkg/errors"
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
+	"golang.org/x/sync/errgroup"
 	"net"
 	"net/http"
+	"sync"
 )
 
 const (
@@ -77,59 +79,97 @@ func (s *Service) Discover() (t types.NATType, e error) {
 		return symmetric, nil
 	}
 
-	log.Debugf("Test III sends a tcp packet to primaryCandidate from tertiary candidates: %s", publicAddrPrimary)
+	var (
+		isOpenInternet bool
+		isFullCone     bool
+		isRestricted   bool
+	)
 
-	// Test III: sends a tcp packet to primaryCandidate from tertiary candidates
-	err = s.RequestCandidateToSendPackets(tertiaryCandidate, "tcp", publicAddrPrimary.String())
-	if err == nil {
+	todos := []func() error{
+		func() error {
+			// Test III: sends a tcp packet to primaryCandidate from tertiary candidates
+			err = s.RequestCandidateToSendPackets(tertiaryCandidate, "tcp", publicAddrPrimary.String())
+			if err != nil {
+				return err
+			}
+
+			isOpenInternet = true
+			return nil
+		},
+		func() error {
+			// Test IV: sends an udp packet to primaryCandidate from tertiary candidates
+			err = s.RequestCandidateToSendPackets(tertiaryCandidate, "udp", publicAddrPrimary.String())
+			if err != nil {
+				return err
+			}
+
+			isFullCone = true
+			return nil
+		},
+		func() error {
+			// Test V: sends an udp packet to primaryCandidate from primary candidates
+			err = s.RequestCandidateToSendPackets(primaryCandidate, "udp", publicAddrPrimary.String())
+			if err != nil {
+				return err
+			}
+
+			isRestricted = true
+			return nil
+		},
+	}
+
+	var eg errgroup.Group
+	for _, todo := range todos {
+		eg.Go(todo)
+	}
+	if err = eg.Wait(); err != nil {
+		log.Debugf("check list failed: %v", err)
+	}
+
+	if isOpenInternet {
 		return openInternet, nil
-	}
-
-	log.Debugf("Test IV sends an udp packet to primaryCandidate from tertiary candidates: %s", publicAddrPrimary)
-
-	// Test IV: sends an udp packet to primaryCandidate from tertiary candidates
-	err = s.RequestCandidateToSendPackets(tertiaryCandidate, "udp", publicAddrPrimary.String())
-	if err == nil {
+	} else if isFullCone {
 		return fullCone, nil
-	}
-
-	log.Debugf("Test V sends an udp packet to primaryCandidate from primary candidates: %s", publicAddrPrimary)
-
-	// Test V: sends an udp packet to primaryCandidate from primary candidates
-	err = s.RequestCandidateToSendPackets(primaryCandidate, "udp", publicAddrPrimary.String())
-	if err == nil {
+	} else if isRestricted {
 		return restricted, nil
+	} else {
+		return portRestricted, nil
 	}
-
-	return portRestricted, nil
 }
 
 // filterAccessibleEdges filtering out the list of available edges to only include those that are accessible by the client
 // and added to the list of accessible accessibleEdges.
 func (s *Service) filterAccessibleEdges(ctx context.Context, edges []*types.Edge) error {
-	for _, edge := range edges {
-		if edge.GetNATType() == symmetric {
-			log.Warnf("symmetric NAT unimplemented")
+	var wg sync.WaitGroup
+	for i := 0; i < len(edges); i++ {
+		if edges[i].GetNATType() == symmetric {
+			log.Warnf("symmetric NAT unimplemented, skipped")
 			continue
 		}
 
-		client, err := s.determineEdgeClient(ctx, s.natType, edge)
-		if err != nil {
-			log.Errorf("determine edge %s(%s) http client failed: %v", edge.NodeID, edge.Address, err)
-			continue
-		}
+		wg.Add(1)
+		go func(edge *types.Edge) {
+			defer wg.Done()
+			client, err := s.determineEdgeClient(ctx, s.natType, edge)
+			if err != nil {
+				log.Warnf("determine edge %s(%s) http client failed: %v", edge.NodeID, edge.Address, err)
+				return
+			}
 
-		err = s.SendPackets(client, edge.Address)
-		if err != nil {
-			log.Warnf("send packets to edge %s(%s) failed: %v", edge.NodeID, edge.Address, err)
-			continue
-		}
+			err = s.SendPackets(client, edge.Address)
+			if err != nil {
+				log.Warnf("send packets to edge %s(%s) failed: %v", edge.NodeID, edge.Address, err)
+				return
+			}
 
-		s.clk.Lock()
-		s.accessibleEdges = append(s.accessibleEdges, edge)
-		s.clients[edge.NodeID] = client
-		s.clk.Unlock()
+			s.clk.Lock()
+			s.accessibleEdges = append(s.accessibleEdges, edge)
+			s.clients[edge.NodeID] = client
+			s.clk.Unlock()
+		}(edges[i])
 	}
+
+	wg.Wait()
 	return nil
 }
 

@@ -4,6 +4,7 @@ go 1.18
 
 require (
 	github.com/cheggaaa/pb v1.0.29
+	github.com/eikenb/pipeat v0.0.0-20210730190139-06b3e6902001
 	github.com/google/uuid v1.3.0
 	github.com/gorilla/mux v1.8.0
 	github.com/ipfs/go-block-format v0.1.2
@@ -19,13 +20,13 @@ require (
 	github.com/ipld/go-car/v2 v2.10.0
 	github.com/pkg/errors v0.9.1
 	github.com/quic-go/quic-go v0.33.0
+	golang.org/x/sync v0.1.0
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2
 )
 
 require (
 	github.com/alecthomas/units v0.0.0-20210927113745-59d0afb8317a // indirect
 	github.com/crackcomm/go-gitignore v0.0.0-20170627025303-887ab5e44cc3 // indirect
-	github.com/eikenb/pipeat v0.0.0-20210730190139-06b3e6902001 // indirect
 	github.com/fatih/color v1.14.1 // indirect
 	github.com/go-logr/logr v1.2.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -82,7 +83,6 @@ require (
 	golang.org/x/exp v0.0.0-20230213192124-5e25df0256eb // indirect
 	golang.org/x/mod v0.7.0 // indirect
 	golang.org/x/net v0.7.0 // indirect
-	golang.org/x/sync v0.1.0 // indirect
 	golang.org/x/sys v0.6.0 // indirect
 	golang.org/x/text v0.7.0 // indirect
 	golang.org/x/tools v0.3.0 // indirect

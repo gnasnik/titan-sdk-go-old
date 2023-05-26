@@ -127,7 +127,7 @@ type Workload struct {
 	EndTime       int64
 }
 
-type ProofOfWork struct {
+type WorkloadReport struct {
 	TokenID  string
 	ClientID string
 	NodeID   string
