@@ -32,10 +32,9 @@ import (
 
 func main() {
 	token := "your_token_value_here"
-	address := "your_address_value_here"
 	client, err := titan.New(
 		config.AddressOption(address),
-		config.TokenOption(token))
+		config.TraversalModeOption(config.TraversalModeRange),
 	if err != nil {
 		log.Fatal(err)
 	}	

@@ -38,7 +38,7 @@ type job struct {
 	retry int
 }
 
-func (d *dispatcher) initial() {
+func (d *dispatcher) initialization() {
 	for i := 0; i < d.concurrency; i++ {
 		d.workers <- worker{id: i}
 	}
@@ -61,55 +61,66 @@ func (d *dispatcher) initial() {
 }
 
 func (d *dispatcher) run(ctx context.Context) {
-	d.initial()
+	d.initialization()
+	d.writeData(ctx)
 
-	go d.writeResp(ctx)
-
-	respErr := make(chan struct{})
+	var (
+		counter  int64
+		finished = make(chan int64, 1)
+	)
 
 	go func() {
 		for {
 			select {
 			case w := <-d.workers:
-				j, ok := d.todos.Pop()
-
-				if !ok {
-					return
-				}
-
 				go func() {
-					if j.retry > 0 {
-						log.Debugf("fetch data (retries: %d)", j.retry)
-					}
-
-					data, err := d.fetch(ctx, d.cid, j.start, j.end)
-					if err != nil {
-						log.Errorf("fetch data failed: %v", err)
-
-						if j.retry < 3 {
-							j.retry++
-							d.todos.PushFront(j)
-						} else {
-							respErr <- struct{}{}
-						}
-
+					j, ok := d.todos.Pop()
+					if !ok {
 						d.workers <- w
 						return
 					}
 
-					offset := j.end - j.start
+					if j.retry > 0 {
+						log.Debugf("pull data (retries: %d)", j.retry)
+					}
+
+					data, err := d.fetch(ctx, d.cid, j.start, j.end)
+					if err != nil {
+						log.Errorf("pull data failed: %v", err)
+
+						if j.retry < 3 {
+							j.retry++
+						} else {
+							// TODO: maybe remove bad nodes
+						}
+
+						d.todos.PushFront(j)
+						d.workers <- w
+						return
+					}
+
+					dataLen := j.end - j.start
+
+					if int64(len(data)) < dataLen {
+						log.Debugf("unexpected data size, want %d got %d", dataLen, len(data))
+						d.todos.PushFront(j)
+						d.workers <- w
+						return
+					}
 
 					d.workers <- w
 					d.resp <- response{
-						data:   data[:offset],
+						data:   data[:dataLen],
 						offset: j.start,
 					}
+					finished <- dataLen
 				}()
-
+			case size := <-finished:
+				counter += size
+				if counter >= d.fileSize {
+					return
+				}
 			case <-ctx.Done():
-				return
-			case <-respErr:
-				d.writer.Close()
 				return
 			}
 		}
@@ -118,27 +129,30 @@ func (d *dispatcher) run(ctx context.Context) {
 	return
 }
 
-func (d *dispatcher) writeResp(ctx context.Context) {
-	defer d.finally()
+func (d *dispatcher) writeData(ctx context.Context) {
+	go func() {
+		defer d.finally()
 
-	var count int64
-	for {
-		select {
-		case r := <-d.resp:
-			_, err := d.writer.WriteAt(r.data, r.offset)
-			if err != nil {
-				log.Errorf("write data failed: %v", err)
-				continue
-			}
+		var count int64
+		for {
+			select {
+			case r := <-d.resp:
+				_, err := d.writer.WriteAt(r.data, r.offset)
+				if err != nil {
+					log.Errorf("write data failed: %v", err)
+					continue
+				}
 
-			count += int64(len(r.data))
-			if count >= d.fileSize {
+				count += int64(len(r.data))
+				if count >= d.fileSize {
+					return
+				}
+			case <-ctx.Done():
 				return
 			}
-		case <-ctx.Done():
-			return
 		}
-	}
+
+	}()
 }
 
 func (d *dispatcher) fetch(ctx context.Context, cid cid.Cid, start, end int64) ([]byte, error) {

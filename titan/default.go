@@ -79,3 +79,25 @@ func defaultHttpClient(conn net.PacketConn) *http.Client {
 		},
 	}}
 }
+
+func newHttpClient(conn quic.EarlyConnection, timeout time.Duration) *http.Client {
+	return &http.Client{Transport: &http3.RoundTripper{
+		TLSClientConfig: defaultTLSConf(),
+		QuicConfig:      defaultQUICConfig(),
+		Dial: func(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error) {
+			return conn, nil
+		},
+	}, Timeout: timeout}
+}
+
+func createConnection(ctx context.Context, conn net.PacketConn, remoteAddr string) (quic.EarlyConnection, error) {
+	addr, err := net.ResolveUDPAddr("udp", remoteAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, defaultTimout)
+	defer cancel()
+
+	return quic.DialEarlyContext(ctx, conn, addr, "localhost", defaultTLSConf(), defaultQUICConfig())
+}

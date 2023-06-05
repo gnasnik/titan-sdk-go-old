@@ -13,6 +13,7 @@ import (
 	unixfile "github.com/ipfs/go-unixfs/file"
 	carv2 "github.com/ipld/go-car/v2"
 	"github.com/ipld/go-car/v2/blockstore"
+	"github.com/pkg/errors"
 	"io"
 	"log"
 	"os"
@@ -29,7 +30,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	cid := "QmWM8Ei7sUgyfciJUMA5UXxaKW2ZSDdtozBNa4nLr1UHj3"
+	cid := "QmXRrLjxgHd2Ls8jFZby2fx2wQuuqBkamQE8ibY6TnREA4"
 	size, reader, err := client.GetFile(context.Background(), cid)
 	if err != nil {
 		log.Fatal(err)
@@ -54,25 +55,25 @@ func main() {
 	fmt.Printf("CAR file save to %s\n", filename)
 
 	outputPath := "download.mp4"
-	DecodeCARFile(filename, outputPath)
+	if err = DecodeCARFile(filename, outputPath); err != nil {
+		log.Fatal(err)
+	}
 }
 
-func DecodeCARFile(CARFilePath, outputPath string) {
+func DecodeCARFile(CARFilePath, outputPath string) error {
 	fmt.Printf("Decoding CAR file %s to %s ...\n", CARFilePath, outputPath)
 
 	// Open the CAR file
 	carFile, err := os.Open(CARFilePath)
 	if err != nil {
-		fmt.Println("Error opening CAR file:", err)
-		return
+		return errors.Errorf("failed to opening CAR file: %v", err)
 	}
 	defer carFile.Close()
 
 	// Create a blockstore
 	bs, err := blockstore.OpenReadOnly(CARFilePath)
 	if err != nil {
-		fmt.Println("Error creating blockstore from CAR file:", err)
-		return
+		return errors.Errorf("failed to creating blockstore from CAR file: %v", err)
 	}
 
 	// Create a blockservice
@@ -84,31 +85,37 @@ func DecodeCARFile(CARFilePath, outputPath string) {
 	// Get the root CID of the CAR file
 	rootsReader, err := carv2.NewReader(carFile)
 	if err != nil {
-		fmt.Println("Error creating roots reader:", err)
-		return
+		return errors.Errorf("failed to creating roots reader: %v", err)
 	}
 	rootCIDs, err := rootsReader.Roots()
 	if err != nil {
-		fmt.Println("Error getting root CIDs:", err)
-		return
+		return errors.Errorf("failed to getting root CIDs: %v", err)
 	}
 
 	// Get the IPLD node from the root CID
 	node, err := dagService.Get(context.Background(), rootCIDs[0])
 	if err != nil {
-		fmt.Println("Error getting IPLD node from root CID:", err)
-		return
+		return errors.Errorf("failed to getting IPLD node from root CID: %v", err)
 	}
 
-	mp4File, err := os.Create(outputPath)
+	newFile, err := os.Create(outputPath)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	merkleNode, err := unixfile.NewUnixfsFile(context.Background(), dagService, node)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
-	io.Copy(mp4File, files.ToFile(merkleNode))
+	switch f := merkleNode.(type) {
+	case files.File:
+		_, err = io.Copy(newFile, f)
+		if err != nil {
+			return err
+		}
+		return nil
+	default:
+		return fmt.Errorf("file type %T is not supported", node)
+	}
 }

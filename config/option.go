@@ -2,6 +2,7 @@ package config
 
 import (
 	"net/http"
+	"time"
 )
 
 type TraversalMode int
@@ -17,7 +18,7 @@ const (
 const (
 	defaultListenAddr             = ":8863"
 	defaultRangeConcurrency       = 10
-	defaultRangeSize        int64 = 1 << 20 // 10 MiB
+	defaultRangeSize        int64 = 1 << 20 // 1 MiB
 )
 
 // Config is a set of titan SDK options.
@@ -26,6 +27,7 @@ type Config struct {
 	Address     string
 	Token       string
 	HttpClient  *http.Client
+	Timeout     time.Duration
 	Mode        TraversalMode
 	Concurrency int   // for range mode
 	RangeSize   int64 // for range mode
@@ -41,6 +43,7 @@ func DefaultOption() Config {
 		ListenAddr:  defaultListenAddr,
 		Concurrency: defaultRangeConcurrency,
 		RangeSize:   defaultRangeSize,
+		Timeout:     30 * time.Second,
 	}
 }
 
@@ -99,5 +102,12 @@ func RangeConcurrencyOption(concurrency int) Option {
 func RangeSizeOption(size int64) Option {
 	return func(opts *Config) {
 		opts.RangeSize = size
+	}
+}
+
+// TimeoutOption specifies a time limit for requests made by the http Client.
+func TimeoutOption(timeout time.Duration) Option {
+	return func(opts *Config) {
+		opts.Timeout = timeout
 	}
 }

@@ -2,13 +2,9 @@ package titan
 
 import (
 	"context"
-	"crypto/tls"
 	"github.com/gnasnik/titan-sdk-go/types"
 	"github.com/pkg/errors"
-	"github.com/quic-go/quic-go"
-	"github.com/quic-go/quic-go/http3"
 	"golang.org/x/sync/errgroup"
-	"net"
 	"net/http"
 	"sync"
 )
@@ -143,11 +139,12 @@ func (s *Service) filterAccessibleEdges(ctx context.Context, edges []*types.Edge
 	var wg sync.WaitGroup
 	for i := 0; i < len(edges); i++ {
 		if edges[i].GetNATType() == symmetric {
-			log.Warnf("symmetric NAT unimplemented, skipped")
+			log.Warnf("A symmetric type device was found, but we haven't implemented it yet, so skip that for now.")
 			continue
 		}
 
 		wg.Add(1)
+
 		go func(edge *types.Edge) {
 			defer wg.Done()
 			client, err := s.determineEdgeClient(ctx, s.natType, edge)
@@ -170,6 +167,9 @@ func (s *Service) filterAccessibleEdges(ctx context.Context, edges []*types.Edge
 	}
 
 	wg.Wait()
+
+	log.Debugf("got accessible edge nodes: %d", len(s.clients))
+
 	return nil
 }
 
@@ -205,7 +205,7 @@ func (s *Service) determineEdgeClient(ctx context.Context, userNATType types.NAT
 			return nil, errors.Errorf("create connection: %v", err)
 		}
 
-		return newClient(conn), nil
+		return newHttpClient(conn, s.timeout), nil
 	}
 
 	// Check if the edge and the user both have a restricted port cone NAT type, then try to send packets to the edge and request the scheduler to do so as well
@@ -222,7 +222,7 @@ func (s *Service) determineEdgeClient(ctx context.Context, userNATType types.NAT
 			return nil, errors.Errorf("create connection: %v", err)
 		}
 
-		return newClient(conn), nil
+		return newHttpClient(conn, s.timeout), nil
 	}
 
 	if edgeNATType == symmetric || userNATType == symmetric {
@@ -231,26 +231,4 @@ func (s *Service) determineEdgeClient(ctx context.Context, userNATType types.NAT
 	}
 
 	return nil, errors.Errorf("unknown NAT type")
-}
-
-func newClient(conn quic.EarlyConnection) *http.Client {
-	return &http.Client{Transport: &http3.RoundTripper{
-		TLSClientConfig: defaultTLSConf(),
-		QuicConfig:      defaultQUICConfig(),
-		Dial: func(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error) {
-			return conn, nil
-		},
-	}}
-}
-
-func createConnection(ctx context.Context, conn net.PacketConn, remoteAddr string) (quic.EarlyConnection, error) {
-	addr, err := net.ResolveUDPAddr("udp", remoteAddr)
-	if err != nil {
-		return nil, err
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, defaultTimout)
-	defer cancel()
-
-	return quic.DialEarlyContext(ctx, conn, addr, "localhost", defaultTLSConf(), defaultQUICConfig())
 }

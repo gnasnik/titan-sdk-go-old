@@ -51,7 +51,7 @@ func (r *Range) GetFile(ctx context.Context, cid cid.Cid) (int64, io.ReadCloser,
 		reader:      reader,
 		writer:      writer,
 		workers:     make(chan worker, r.concurrency),
-		resp:        make(chan response, 1),
+		resp:        make(chan response, r.concurrency),
 	}).run(ctx)
 
 	return fileSize, reader, nil

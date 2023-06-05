@@ -39,9 +39,11 @@ var (
 var log = logging.Logger("service")
 
 type Service struct {
-	baseAPI         string
-	token           string
-	httpClient      *http.Client
+	baseAPI    string
+	token      string
+	httpClient *http.Client
+	timeout    time.Duration
+
 	conn            net.PacketConn
 	natType         types.NATType
 	accessibleEdges []*types.Edge
@@ -78,6 +80,7 @@ func New(options config.Config) (*Service, error) {
 		baseAPI:    getRpcV0URL(options.Address),
 		token:      options.Token,
 		httpClient: defaultHttpClient(conn),
+		timeout:    options.Timeout,
 		count:      rand.Intn(100),
 		conn:       conn,
 		started:    false,
@@ -256,7 +259,7 @@ func (s *Service) GetRange(ctx context.Context, cid cid.Cid, start, end int64) (
 	header := http.Header{}
 	header.Add("Range", fmt.Sprintf("bytes=%d-%d", start, end))
 
-	//log.Debugf("get range data from: %s", edge.Address)
+	log.Debugf("pull data from: %s", edge.Address)
 	size, data, err := getData(client, edge, namespace, formatCAR, header)
 	if err != nil {
 		return 0, nil, errors.Errorf("post request failed: %v", err)
@@ -373,12 +376,10 @@ func (s *Service) getEdgeNodesByFile(cid cid.Cid) ([]*types.Edge, error) {
 				SchedulerURL: item.SchedulerURL,
 				SchedulerKey: item.SchedulerKey,
 			}
-			log.Debugf("got edge node: id: %s, ip: %s, NAT: %s", e.NodeID, e.Address, e.NATType)
+			log.Debugf("edge node id: %s, ip: %s, NAT: %s", e.NodeID, e.Address, e.NATType)
 			out = append(out, e)
 		}
 	}
-
-	log.Debugf("got edge nodes: %d", len(out))
 
 	return out, err
 }
